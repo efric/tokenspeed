@@ -294,16 +294,25 @@ def triton_fp8_moe_apply(
 
     top_k = getattr(w, "top_k", topk_ids.shape[1])
     n_tokens = x.shape[0]
+    exclude_invalid_routes = int(getattr(w, "ep_size", 1)) > 1
     topk_weights, topk_ids, num_experts = _local_topk_for_ep(
         topk_weights,
         topk_ids,
         w,
     )
-    ragged_metadata, gather_indx, scatter_indx, gate_scal = _routing_from_topk(
+    (
+        ragged_metadata,
+        gather_indx,
+        scatter_indx,
+        gate_scal,
+        valid_routes,
+        sorted_valid_routes,
+    ) = _routing_from_topk(
         topk_weights,
         topk_ids,
         num_experts=num_experts,
         dtype=router_logits.dtype,
+        exclude_invalid_from_metadata=exclude_invalid_routes,
     )
 
     w13_bias = getattr(w, "w13_weight_bias", None)
@@ -328,6 +337,8 @@ def triton_fp8_moe_apply(
         precision_config=w.w13_precision_config,
         fused_activation=act,
     )
+    if exclude_invalid_routes:
+        intermediate_cache.masked_fill_(~sorted_valid_routes[:, None], 0)
     if act is None:
         intermediate_cache = _silu_gate_up(
             intermediate_cache,
@@ -343,6 +354,8 @@ def triton_fp8_moe_apply(
         scatter_indx=scatter_indx,
         gammas=gate_scal,
     )
+    if exclude_invalid_routes:
+        output.masked_fill_(~valid_routes[:, None], 0)
     if top_k > 1:
         return output.view(n_tokens, top_k, output.shape[-1]).sum(dim=1)
     return output

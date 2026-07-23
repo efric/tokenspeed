@@ -1716,6 +1716,68 @@ def test_mxfp4_ep_topk_localization_masks_remote_experts() -> None:
     )
 
 
+def test_mxfp4_ep_routing_metadata_excludes_remote_routes(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+    metadata = object()
+
+    def fake_make_ragged_tensor_metadata(
+        slice_sizes: torch.Tensor,
+        n_total_rows: int,
+    ) -> object:
+        captured["slice_sizes"] = slice_sizes.clone()
+        captured["n_total_rows"] = n_total_rows
+        return metadata
+
+    monkeypatch.setattr(
+        _moe_triton_mxfp4,
+        "make_ragged_tensor_metadata",
+        fake_make_ragged_tensor_metadata,
+    )
+    topk_weights = torch.tensor(
+        [[0.0, 0.2, 0.3], [0.0, 0.0, 0.0]],
+        dtype=torch.float32,
+    )
+    topk_ids = torch.tensor(
+        [[-1, 0, 1], [-1, -1, -1]],
+        dtype=torch.int64,
+    )
+
+    (
+        actual_metadata,
+        gather_indx,
+        scatter_indx,
+        gate_scal,
+        valid_routes,
+        sorted_valid_routes,
+    ) = _moe_triton_mxfp4._routing_from_topk(
+        topk_weights,
+        topk_ids,
+        num_experts=2,
+        exclude_invalid_from_metadata=True,
+    )
+
+    assert actual_metadata is metadata
+    assert captured["n_total_rows"] == 6
+    assert torch.equal(captured["slice_sizes"], torch.tensor([1, 1], dtype=torch.int32))
+    assert torch.equal(gather_indx, torch.tensor([0, 0, 0, 1, 1, 1], dtype=torch.int32))
+    assert torch.equal(
+        scatter_indx,
+        torch.tensor([1, 2, 0, 3, 4, 5], dtype=torch.int32),
+    )
+    torch.testing.assert_close(
+        gate_scal,
+        torch.tensor([0.2, 0.3, 0.0, 0.0, 0.0, 0.0]),
+    )
+    assert torch.equal(
+        valid_routes,
+        torch.tensor([False, True, True, False, False, False]),
+    )
+    assert torch.equal(
+        sorted_valid_routes,
+        torch.tensor([True, True, False, False, False, False]),
+    )
+
+
 def _case(
     matches: Callable[[PlatformInfo], bool],
     arch: str,

@@ -219,7 +219,15 @@ def _routing_from_topk(
     topk_ids: torch.Tensor,
     num_experts: int,
     dtype: torch.dtype | None = None,
-) -> tuple[RaggedTensorMetadata, torch.Tensor, torch.Tensor, torch.Tensor]:
+    exclude_invalid_from_metadata: bool = False,
+) -> tuple[
+    RaggedTensorMetadata,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+]:
     if topk_ids.ndim != 2:
         raise ValueError(f"topk_ids must be rank-2, got {tuple(topk_ids.shape)}")
     if topk_weights.shape != topk_ids.shape:
@@ -231,9 +239,10 @@ def _routing_from_topk(
         raise ValueError(f"num_experts must be positive, got {num_experts}")
 
     flat_ids = topk_ids.reshape(-1).to(torch.long)
-    valid = flat_ids >= 0
-    safe_ids = torch.where(valid, flat_ids, flat_ids.new_zeros(()))
-    sort_order = torch.argsort(safe_ids, stable=True)
+    valid = (flat_ids >= 0) & (flat_ids < num_experts)
+    invalid_sort_id = num_experts if exclude_invalid_from_metadata else 0
+    sort_ids = torch.where(valid, flat_ids, flat_ids.new_full((), invalid_sort_id))
+    sort_order = torch.argsort(sort_ids, stable=True)
 
     top_k = topk_ids.shape[1]
     gather_indx = (sort_order // top_k).to(torch.int32)
@@ -243,16 +252,29 @@ def _routing_from_topk(
     if dtype is not None and gate_scal.dtype != dtype:
         gate_scal = gate_scal.to(dtype)
 
-    col_sum = torch.zeros((num_experts,), dtype=torch.int32, device=safe_ids.device)
+    col_sum = torch.zeros((num_experts,), dtype=torch.int32, device=flat_ids.device)
+    count_ids = torch.where(valid, flat_ids, flat_ids.new_zeros(()))
+    count_values = (
+        valid.to(torch.int32)
+        if exclude_invalid_from_metadata
+        else torch.ones_like(flat_ids, dtype=torch.int32)
+    )
     col_sum.scatter_add_(
         0,
-        safe_ids,
-        torch.ones_like(safe_ids, dtype=torch.int32),
+        count_ids,
+        count_values,
     )
     n_total_rows = int(sort_order.numel())
     ragged_metadata = make_ragged_tensor_metadata(col_sum, n_total_rows)
 
-    return ragged_metadata, gather_indx, scatter_indx, gate_scal
+    return (
+        ragged_metadata,
+        gather_indx,
+        scatter_indx,
+        gate_scal,
+        valid,
+        valid[sort_order],
+    )
 
 
 def _local_topk_for_ep(
@@ -445,6 +467,9 @@ def triton_mxfp4_moe_apply(
 
     top_k = getattr(w, "top_k")
     n_tokens = router_logits.shape[0]
+    exclude_invalid_routes = (
+        topk_weights is not None and int(getattr(w, "ep_size", 1)) > 1
+    )
 
     if topk_weights is not None or topk_ids is not None:
         if topk_weights is None or topk_ids is None:
@@ -454,11 +479,19 @@ def triton_mxfp4_moe_apply(
             topk_ids,
             w,
         )
-        ragged_metadata, gather_indx, scatter_indx, gate_scal = _routing_from_topk(
+        (
+            ragged_metadata,
+            gather_indx,
+            scatter_indx,
+            gate_scal,
+            valid_routes,
+            sorted_valid_routes,
+        ) = _routing_from_topk(
             topk_weights,
             topk_ids,
             num_experts=num_experts,
             dtype=router_logits.dtype,
+            exclude_invalid_from_metadata=exclude_invalid_routes,
         )
     else:
         ragged_metadata, gather_indx, scatter_indx, gate_scal = _routing(
@@ -504,6 +537,11 @@ def triton_mxfp4_moe_apply(
             precision_config=w13_pc,
             fused_activation=act,
         )
+    if exclude_invalid_routes:
+        # EP localization sorts remote routes behind every local expert and
+        # excludes them from the ragged block schedule. Matmul therefore does
+        # not write those rows; clear them before activation or quantization.
+        intermediate_cache.masked_fill_(~sorted_valid_routes[:, None], 0)
     if act is None:
         intermediate_cache = _silu_gate_up(
             intermediate_cache,
@@ -531,6 +569,11 @@ def triton_mxfp4_moe_apply(
             scatter_indx=scatter_indx,
             gammas=gate_scal,
         )
+    if exclude_invalid_routes:
+        # The down projection scatters local rows back to their original route
+        # positions. Remote positions are intentionally unwritten and must be
+        # zero before the top-k reduction and cross-rank MoE reduction.
+        output.masked_fill_(~valid_routes[:, None], 0)
     if top_k > 1:
         return output.view(n_tokens, top_k, output.shape[-1]).sum(dim=1)
     return output
