@@ -87,6 +87,13 @@ def worker_main(rank: int, world_size: int, port: int, hidden_size: int) -> None
             check_reduce_scatter(rsag, rank, world_size, tokens, hidden_size, device)
 
         if current_platform().is_amd:
+            check_amd_rsag_phase_wrap(
+                rsag,
+                rank,
+                world_size,
+                hidden_size,
+                device,
+            )
             check_all_reduce(rank, world_size, device)
             check_allreduce_residual_rmsnorm(rank, world_size, device)
     finally:
@@ -201,6 +208,42 @@ def check_reduce_scatter(
     torch.testing.assert_close(result, expected, atol=0, rtol=0)
 
 
+def check_amd_rsag_phase_wrap(
+    rsag,
+    rank: int,
+    world_size: int,
+    hidden_size: int,
+    device,
+) -> None:
+    """The alternating barrier banks remain reusable across uint32 wrap."""
+    signal = rsag.symm_mem_hdl.get_signal_pad(
+        rank,
+        (5,),
+        dtype=torch.int32,
+    )
+    signal.copy_(
+        torch.tensor(
+            [0, 0, -1, 0, 0],
+            dtype=torch.int32,
+            device=device,
+        )
+    )
+    torch.cuda.synchronize(device)
+    dist.barrier()
+
+    tokens = [4] * world_size
+    check_all_gather(rsag, rank, world_size, tokens, hidden_size, device)
+    check_reduce_scatter(rsag, rank, world_size, tokens, hidden_size, device)
+    torch.cuda.synchronize(device)
+
+    expected = torch.tensor(
+        [0, 0, 2, 0, 0],
+        dtype=torch.int32,
+        device=device,
+    )
+    torch.testing.assert_close(signal, expected, atol=0, rtol=0)
+
+
 def run_rsag_test(world_size: int, hidden_size: int) -> None:
     if not torch.cuda.is_available():
         pytest.skip("CUDA/ROCm is required for TritonRSAG tests")
@@ -222,3 +265,22 @@ def run_rsag_test(world_size: int, hidden_size: int) -> None:
 
 def test_triton_communication_correctness_world4():
     run_rsag_test(world_size=4, hidden_size=2880)
+
+
+def test_amd_rsag_num_blocks_uses_rank_local_persistent_grid(monkeypatch):
+    from tokenspeed_kernel.ops.communication.triton import amd_rsag_num_blocks
+
+    class DeviceProperties:
+        multi_processor_count = 256
+
+    monkeypatch.setattr(
+        torch.cuda,
+        "get_device_properties",
+        lambda _device: DeviceProperties(),
+    )
+
+    device = torch.device("cuda:0")
+    assert amd_rsag_num_blocks(0, device) == 1
+    assert amd_rsag_num_blocks(1024, device) == 1
+    assert amd_rsag_num_blocks(1025, device) == 2
+    assert amd_rsag_num_blocks(8192 * 7168, device) == 256
