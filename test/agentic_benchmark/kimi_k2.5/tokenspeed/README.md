@@ -29,6 +29,10 @@ free, repeat. Aborts the whole sweep on the first failure (`set -e`).
 
 To narrow the matrix, comment out entries in the `CONFIGS=()` array.
 
+The AMD token-RSAG root-cause correction, compiler evidence, one-launch
+algorithm, call tree, and design review are documented in
+[`amd_rsag_refactor_analysis.md`](amd_rsag_refactor_analysis.md).
+
 ## Configs
 
 Each `configs/*.sh` `exec`s `ts serve` with the full flag set for one

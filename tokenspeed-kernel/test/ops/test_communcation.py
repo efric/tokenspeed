@@ -284,3 +284,12 @@ def test_amd_rsag_num_blocks_uses_rank_local_persistent_grid(monkeypatch):
     assert amd_rsag_num_blocks(1024, device) == 1
     assert amd_rsag_num_blocks(1025, device) == 2
     assert amd_rsag_num_blocks(8192 * 7168, device) == 256
+
+
+def test_amd_rsag_payload_workgroup_is_one_amd_wave():
+    from tokenspeed_kernel.ops.communication.triton import _AMD_RSAG_NUM_WARPS
+
+    # The completion release only publishes VMEM operations from its own wave.
+    # A multi-wave payload workgroup needs an explicit global-memory workgroup
+    # fence that Triton's current scalar-atomic lowering does not provide.
+    assert _AMD_RSAG_NUM_WARPS == 1
