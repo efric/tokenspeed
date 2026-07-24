@@ -10,39 +10,31 @@ MoE routing or RSAG algorithm change.
 - Attention DP8 + MoE EP8 passed startup, serving, and agentic concurrency 1,
   2, and 4 with only that production fix. It then encountered a GPU nil-address
   fault shortly after concurrency 8 began.
-- With the independent MXFP4 EP route-metadata fix added, EP8 passed
-  concurrency 8. At concurrency 16 it later stopped making device progress.
 
-The first item proves that the persistent-buffer fix is sufficient for the
-requested TP8 profile and fixes the original deterministic DP startup/idle-rank
-exception. The EP8 results show that the persistent defect was fixed there too,
-but do not prove a complete EP8 sweep.
+This proves that the persistent-buffer patch fixes the original deterministic
+DP startup/idle-rank exception in both profiles and is sufficient for the full
+bounded TP8 workload. It does not prove completion of the EP8 sweep.
 
-The most minimal candidate branch is therefore:
+The most minimal production candidate is therefore:
 
 ```text
 fix-dp-kimi-minimal-enablement
   persistent symmetric-buffer lifetime
   benchmark/configuration support
-  MXFP4 invalid EP route exclusion
-  focused tests and four-GPU CI proxy
+  focused regression and four-GPU CI proxy
 ```
 
-It deliberately retains the original AMD token RSAG algorithm. The canonical
-isolated one-launch follow-up is `fix-dp-kimi-rsag-hang` at `441911a`; its
-analysis is in `amd_rsag_refactor_analysis.md` on that branch. The earlier
-integrated snapshot is retained as `fix-dp-kimi-one-launch-candidate` only for
-provenance.
+It deliberately retains both the original AMD token RSAG algorithm and the
+original zero-gated EP route algorithm. The alternatives are isolated:
 
-Focused investigation found structural forward-progress and publication risks
-in the old algorithm, but did not reproduce an old-kernel hang or localize
-either observed model failure to an RSAG instruction. It is consequently a
-valuable general hardening and performance follow-up, not a proven prerequisite
-for this minimal patch.
+- `fix-dp-kimi-mxfp4-route-followup` at `893736b` excludes remote MXFP4
+  routes from local GEMM work.
+- `fix-dp-kimi-rsag-hang` at `441911a` contains the one-launch RSAG refactor
+  and its corrected analysis.
 
 Because model benchmarking was intentionally concluded after the latest round,
 this document does not claim that the exact final branch passes EP8 concurrency
-16 or the unbounded agentic workload.
+8 or 16, or the unbounded agentic workload.
 
 ## Commit organization
 
@@ -54,29 +46,26 @@ Each concern is an independently signed-off commit:
 | `8a926b3` | Benchmark config | Define AMD DP8 + MoE TP8 and DP8 + MoE EP8 profiles. |
 | `574bba0` | Benchmark harness | Pin EvalScope and make selection, ports, checkout, and cleanup reproducible. |
 | `3b6c4ce` | GPU reservation | Require the same eight GPUs to remain idle and owner-free before launch. |
-| `f9819a3` | EP correctness | Exclude invalid remote MXFP4 routes and clear unscheduled rows. |
-| `85301b5` | EP test | Exercise the production MXFP4 EP path on gfx950. |
-| `7744a61` | CI config | Exercise the attention-DP token-collective path on the four-GPU AMD runner. |
-| `33ef202` | Evidence provenance | Record the exact source revision and clean/dirty state in future benchmark logs. |
+| `48b6c1c` | CI config | Exercise the attention-DP token-collective path on the four-GPU AMD runner. |
+| `c52c818` | Evidence provenance | Record the exact source revision and clean/dirty state in future benchmark logs. |
 
-Only `b5db054` and `f9819a3` change production behavior. The latter is
-EP-specific and is not needed by the TP8 profile. No split synchronization
-kernel, one-launch RSAG rewrite, rocSHMEM dependency, RCCL fallback, or direct
-runtime dependency on another kernel package is present.
+Only `b5db054` changes production behavior. No EP routing change, split
+synchronization kernel, one-launch RSAG rewrite, rocSHMEM dependency, RCCL
+fallback, or direct runtime dependency on another kernel package is present.
 
 ### Minimality ledger
 
 | Candidate removal | Evidence | Decision |
 | --- | --- | --- |
 | Persistent-buffer fix | Without it, cached state created in inference mode is later mutated outside inference mode and PyTorch raises before reduce-scatter launches. Its focused WS2/WS4 regression passes on this branch. | Required for both profiles. |
-| EP route fix | The old metadata maps remote `-1` routes to expert zero and counts `[5,1]` instead of `[1,1]` in the focused reproducer. The production gfx950 path matches its reference after the fix. | Required for correct EP8 routing; irrelevant to TP8. |
-| RSAG refactor | The original RSAG completed the full TP8 bounded run and EP8 through concurrency 8. Focused old-RSAG Kimi-skew cases also completed with correct values. No observed model failure was localized to it. | Excluded from the minimal branch; retained as follow-up hardening. |
+| EP route exclusion | The old path maps remote `-1` routes to expert zero, but their gate is zero. Both GEMMs write every row and the zero-gated result is scattered before top-k reduction. Old and excluded paths were bitwise equal at exact Kimi geometry; the old path passed 1,000 repeats without an access fault. | Excluded from the minimum; retained as performance and non-finite-value hardening. |
+| RSAG refactor | The original RSAG completed the full TP8 bounded run and EP8 startup/serving/lower-concurrency work. Focused old-RSAG Kimi-skew cases completed with correct values, and no observed model failure was localized to it. | Excluded from the minimum; retained as general liveness/performance hardening. |
 
-The production source at branch head is byte-for-byte identical to `85301b5`.
-Later commits change only CI configuration and documentation. The persistent
-allocation and regression files are unchanged from the persistent-only model
-state at `3b6c4ce`. Thus the preserved model runs exercise the same production
-implementations that are present at branch head.
+The production allocation and its regression at branch head are byte-for-byte
+identical to the persistent-only model state at `3b6c4ce`. Every later commit
+changes only CI, evidence capture, or documentation. Thus the preserved
+persistent-only model runs exercise the same production implementation present
+at branch head.
 
 ## The persistent-buffer defect
 
@@ -188,7 +177,7 @@ The inference-tensor mutation exception did not recur. This is evidence that
 the persistent defect was resolved, not evidence that the complete EP8 profile
 was accepted.
 
-## Why the EP route fix is a separate correctness change
+## Why EP route exclusion is a follow-up
 
 In EP8, global top-k expert IDs owned by other ranks localize to `-1`. The old
 MXFP4 route builder converted negative IDs to expert zero before sorting and
@@ -197,43 +186,58 @@ counting. For example:
 ```text
 localized routes = [[-1, 0, 1], [-1, -1, -1]]
 old local counts = [5, 1]
-correct counts   = [1, 1]
+excluded counts  = [1, 1]
 ```
 
-Zero gate weights can hide a small output symptom, but ragged GEMM still treats
-those entries as real expert-zero rows. At EP8, most of a rank's route table can
-be remote. Worse, rows excluded from the intended local schedule can otherwise
-remain uninitialized before later activation, quantization, or top-k reduction.
+That metadata is inefficient, but calling it incorrect was too strong. The
+complete old path is:
 
-Commit `f9819a3`:
-
-1. sorts invalid routes after valid local experts;
-2. excludes invalid routes from ragged expert counts;
-3. clears intermediate rows not written by the local ragged GEMM; and
-4. clears invalid original route positions before the top-k sum.
-
-The change is restricted to the MXFP4 precomputed-top-k EP path. It is not an
-RSAG change and is not needed for MoE TP8.
-
-Focused commands:
-
-```bash
-source /home/ericfeng/distributed/.venvs/tokenspeed/bin/activate
-
-python -m pytest -q tokenspeed-kernel/test/test_kernel_api_selection.py \
-  -k 'mxfp4_ep_topk_localization_masks_remote_experts or mxfp4_ep_routing_metadata_excludes_remote_routes or mxfp4_ep_apply_zeroes_unscheduled_remote_routes'
-
-python -m pytest -q \
-  tokenspeed-kernel/test/ops/moe/test_triton_mxfp4_ep_apply_gfx950.py
+```text
+remote route
+  -> local id -1 and gate 0
+  -> safe id 0 for metadata
+  -> both ragged GEMMs compute local expert 0
+  -> down projection multiplies the finite result by gate 0
+  -> scatter writes zero to the original route
+  -> top-k sum is unchanged
 ```
 
-The host metadata suite passed 3 tests. The gfx950 test used packed,
-swizzled production weights and matched an FP32 reference.
+Because the old expert counts sum to every top-k row, neither GEMM leaves an
+unscheduled output row. Explicit clearing becomes necessary only after the
+optimization removes remote rows from the ragged schedule. For finite
+intermediates, the original and excluded algorithms are mathematically
+equivalent. Exclusion additionally prevents a hypothetical non-finite
+expert-zero result from surviving `0 * NaN`, but no such value was observed.
 
-## EP8 with the route fix and original RSAG
+The exact Kimi geometry was tested on gfx950:
 
-This run used `85301b5`, so it contained both minimal production fixes while
-retaining the original RSAG:
+```text
+tokens               8,192
+top-k                    8
+hidden size          7,168
+MoE intermediate     2,048
+global experts          384
+local experts            48
+EP width                  8
+```
+
+The excluded path scheduled 8,193 local rows in the deterministic test
+distribution, including 171 on expert zero. The original path scheduled all
+65,536 top-k rows, including 57,514 on expert zero. Both returned finite,
+bitwise-identical tensors. The original geometry then completed 1,000
+iterations with bitwise-stable output, a 15.161 ms median, and no memory-access
+fault.
+
+This does not prove that no workload can fail, but it disproves the claim that
+the old metadata is inherently semantically wrong or that the large
+expert-zero slice alone reproduces the node-2 fault. Since algorithmic
+inefficiency is acceptable for the minimal enablement, the route exclusion is
+kept on `fix-dp-kimi-mxfp4-route-followup`.
+
+## EP8 follow-up run with route exclusion
+
+For attribution only, a later run used the persistent fix plus route exclusion
+while retaining the original RSAG:
 
 ```bash
 source /home/ericfeng/distributed/.venvs/tokenspeed/bin/activate
@@ -270,6 +274,11 @@ created the dependency chain, and in particular does not prove that the
 original RSAG was stalled. Focused old-RSAG tests—including exact Kimi-skew
 WS2/WS8 cases and repeated value checks—completed correctly, so the RSAG
 refactor is not attributed as the fix for this observation.
+
+Likewise, one route-excluded run crossing the earlier concurrency-8 window does
+not prove that route exclusion fixed the prior node-2 fault. The old
+exact-geometry route stress did not reproduce that fault, and the excluded run
+encountered a different progress stop at concurrency 16.
 
 ## GPU reservation and benchmark phases
 
@@ -308,12 +317,12 @@ dense/MoE width four, it selects token all-gather/reduce-scatter for the same
 reason as DP8 + MoE TP8.
 
 This is a semantic-path proxy, not DP8 acceptance. It does not exercise EP
-route metadata, which has focused host and gfx950 coverage.
+route exclusion, which is intentionally outside this branch.
 
 ## Exact-branch focused verification
 
-After removing the RSAG refactor from this branch, the following checks were
-rerun:
+After removing both follow-up algorithms from this branch, the production
+regression was rerun:
 
 ```bash
 source /home/ericfeng/distributed/.venvs/tokenspeed/bin/activate
@@ -323,20 +332,16 @@ HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
 python -m pytest -q \
   test/runtime/distributed/test_comm_ops.py::TestCommOps::test_token_ops_inference_initialized_state
-
-HIP_VISIBLE_DEVICES=0 CUDA_VISIBLE_DEVICES=0 \
-python -m pytest -q \
-  tokenspeed-kernel/test/ops/moe/test_triton_mxfp4_ep_apply_gfx950.py
 ```
 
-Before each GPU command, `rocm-smi --showuse --showmemuse --showpidgpus`
+Before the GPU command, `rocm-smi --showuse --showmemuse --showpidgpus`
 reported all eight GPUs at zero utilization, zero allocated VRAM, and no KFD
-owners. Results were 2 passing WS2/WS4 persistent-state cases and 1 passing
-gfx950 MXFP4 EP case.
+owners. Both WS2 and WS4 persistent-state cases passed.
 
-The three host routing tests also passed, both configuration scripts and the
-harness passed `bash -n`, the CI YAML parsed successfully, and
-`pre-commit run --all-files` passed.
+Both configuration scripts and the harness passed `bash -n`, the CI YAML
+parsed successfully, and `pre-commit run --all-files` passed. The route
+follow-up independently passed its three host tests and gfx950 production-path
+test before its two signed-off commits were created.
 
 ## Evidence hashes
 
@@ -353,6 +358,7 @@ b5bff6bbebcaf9efaab0d2eecb7542c910f8106855430db0a9141f2987c6376e  /tmp/tokenspee
 
 The following remain untested on the exact final minimal branch:
 
+- EP8 agentic concurrency 8 completion;
 - EP8 agentic concurrency 16 completion;
 - the uncapped 10-to-15-turn agentic dataset;
 - long-duration replay or soak behavior;
@@ -360,8 +366,9 @@ The following remain untested on the exact final minimal branch:
 - a controlled diagnosis of the EP8 concurrency-16 device progress stop.
 
 TP8 was tested through every bounded point on the production-equivalent
-persistent-only state. EP8 was tested through concurrency 8 with both minimal
-production fixes and the original RSAG.
+persistent-only state. EP8 persistent-only evidence reaches concurrency 4.
+The route-excluded follow-up reaches concurrency 8, but is not used as proof
+that this smaller branch reaches that point.
 
 When model benchmarking resumes, the exact acceptance commands are:
 
