@@ -53,11 +53,26 @@ Each concern is an independently signed-off commit:
 | `f9819a3` | EP correctness | Exclude invalid remote MXFP4 routes and clear unscheduled rows. |
 | `85301b5` | EP test | Exercise the production MXFP4 EP path on gfx950. |
 | `7744a61` | CI config | Exercise the attention-DP token-collective path on the four-GPU AMD runner. |
+| `33ef202` | Evidence provenance | Record the exact source revision and clean/dirty state in future benchmark logs. |
 
 Only `b5db054` and `f9819a3` change production behavior. The latter is
 EP-specific and is not needed by the TP8 profile. No split synchronization
 kernel, one-launch RSAG rewrite, rocSHMEM dependency, RCCL fallback, or direct
 runtime dependency on another kernel package is present.
+
+### Minimality ledger
+
+| Candidate removal | Evidence | Decision |
+| --- | --- | --- |
+| Persistent-buffer fix | Without it, cached state created in inference mode is later mutated outside inference mode and PyTorch raises before reduce-scatter launches. Its focused WS2/WS4 regression passes on this branch. | Required for both profiles. |
+| EP route fix | The old metadata maps remote `-1` routes to expert zero and counts `[5,1]` instead of `[1,1]` in the focused reproducer. The production gfx950 path matches its reference after the fix. | Required for correct EP8 routing; irrelevant to TP8. |
+| RSAG refactor | The original RSAG completed the full TP8 bounded run and EP8 through concurrency 8. Focused old-RSAG Kimi-skew cases also completed with correct values. No observed model failure was localized to it. | Excluded from the minimal branch; retained as follow-up hardening. |
+
+The production source at branch head is byte-for-byte identical to `85301b5`.
+Later commits change only CI configuration and documentation. The persistent
+allocation and regression files are unchanged from the persistent-only model
+state at `3b6c4ce`. Thus the preserved model runs exercise the same production
+implementations that are present at branch head.
 
 ## The persistent-buffer defect
 
@@ -266,6 +281,10 @@ no KFD owner. The same eight IDs must remain eligible for
 `GPU_IDLE_STABLE_CHECKS` consecutive samples. Only then are those exact IDs
 passed in both `HIP_VISIBLE_DEVICES` and `CUDA_VISIBLE_DEVICES`.
 
+The harness prints the repository path, exact Git revision, and clean/dirty
+state at the start of every future run so its source provenance is captured in
+the benchmark log.
+
 For each selected configuration, the harness runs:
 
 1. `ts serve` startup, eager graph warmups, graph capture, built-in generation
@@ -286,6 +305,34 @@ reason as DP8 + MoE TP8.
 
 This is a semantic-path proxy, not DP8 acceptance. It does not exercise EP
 route metadata, which has focused host and gfx950 coverage.
+
+## Exact-branch focused verification
+
+After removing the RSAG refactor from this branch, the following checks were
+rerun:
+
+```bash
+source /home/ericfeng/distributed/.venvs/tokenspeed/bin/activate
+export PYTHONPATH="$PWD/python:$PWD/tokenspeed-kernel/python${PYTHONPATH:+:$PYTHONPATH}"
+
+HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+python -m pytest -q \
+  test/runtime/distributed/test_comm_ops.py::TestCommOps::test_token_ops_inference_initialized_state
+
+HIP_VISIBLE_DEVICES=0 CUDA_VISIBLE_DEVICES=0 \
+python -m pytest -q \
+  tokenspeed-kernel/test/ops/moe/test_triton_mxfp4_ep_apply_gfx950.py
+```
+
+Before each GPU command, `rocm-smi --showuse --showmemuse --showpidgpus`
+reported all eight GPUs at zero utilization, zero allocated VRAM, and no KFD
+owners. Results were 2 passing WS2/WS4 persistent-state cases and 1 passing
+gfx950 MXFP4 EP case.
+
+The three host routing tests also passed, both configuration scripts and the
+harness passed `bash -n`, the CI YAML parsed successfully, and
+`pre-commit run --all-files` passed.
 
 ## Evidence hashes
 
