@@ -1630,6 +1630,7 @@ def mla_decode_with_kvcache(
         v_head_dim.
     """
     traits = {
+        "batch_size": q.shape[0],
         "page_size": kv_cache.shape[1],
         "q_len": q.shape[1],
         "num_q_heads": q.shape[2],

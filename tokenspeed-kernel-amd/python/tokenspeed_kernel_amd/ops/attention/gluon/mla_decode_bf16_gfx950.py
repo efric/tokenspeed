@@ -20,12 +20,17 @@
 
 """MLA decode Gluon kernels for AMD GFX950 (bf16 Q + bf16 KV).
 
-Two regimes share one kernel, dispatched by ``num_q_heads``:
+Two compute regimes share one kernel, dispatched by ``num_q_heads``:
 
 * ``bh16bn64`` -- BLOCK_H=16, BLOCK_N=64, ``num_q_heads <= 16``, 2-D
   (batch, split) grid.
 * ``bh64`` -- BLOCK_H=64, BLOCK_N=64, ``num_q_heads in {64, 128}``, 3-D
   XCD-aware grid, ``batch_size`` divisible by 64.
+
+For 64-head small batches, either compute regime can use a 3-D
+(batch, head-block, split) grid. The selected mapping is independent of the
+compute layouts so both variants can be benchmarked without duplicating the
+attention math.
 """
 
 from __future__ import annotations
@@ -52,6 +57,7 @@ class AttentionConfig:
     NUM_XCDS: gl.constexpr
     NHEAD: gl.constexpr
     REGIME: gl.constexpr
+    GRID_MODE: gl.constexpr
     RETURN_LSE: gl.constexpr
     stride_q_nope_bs: gl.constexpr
     stride_q_nope_h: gl.constexpr
@@ -99,6 +105,7 @@ class AttentionConfig:
         NUM_XCDS,
         NHEAD,
         REGIME,
+        GRID_MODE,
         RETURN_LSE,
         stride_q_nope_bs,
         stride_q_nope_h,
@@ -360,6 +367,7 @@ class AttentionConfig:
         self.NUM_XCDS = gl.constexpr(NUM_XCDS)
         self.NHEAD = gl.constexpr(NHEAD)
         self.REGIME = gl.constexpr(REGIME)
+        self.GRID_MODE = gl.constexpr(GRID_MODE)
         self.RETURN_LSE = gl.constexpr(RETURN_LSE)
         self.stride_q_nope_bs = gl.constexpr(stride_q_nope_bs)
         self.stride_q_nope_h = gl.constexpr(stride_q_nope_h)
@@ -468,21 +476,27 @@ class AttentionProgram:
         sm_scale,
         kv_scale,
     ):
-        # Grid mapping: bh64 uses a 3-D XCD-aware multi-batch grid
-        # (NUM_XCDS, head_block, (batch // NUM_XCDS) * NUM_KV_SPLITS); bh16bn64 uses
-        # a 2-D (batch, split) grid (for batch_size=1 this is (1, NUM_KV_SPLITS)).
-        if cfg.REGIME == "bh64":
+        # Grid modes are independent of compute layout. ``xcd`` distributes
+        # large bh64 batches across XCDs, ``batch_split`` maps bh16 work over
+        # (batch, split), and ``batch_head_split`` adds a head-block axis.
+        if cfg.GRID_MODE == "xcd":
             cur_batch = (
                 gl.program_id(0)
                 + (gl.program_id(2) // cfg.NUM_KV_SPLITS) * cfg.NUM_XCDS
             )
             cur_head_id = gl.program_id(1)
             split_kv_id = gl.program_id(2) % cfg.NUM_KV_SPLITS
-        else:
+        elif cfg.GRID_MODE == "batch_split":
             cur_batch = gl.program_id(0)
             split_kv_id = gl.program_id(1)
             # Head-block 0; use a runtime zero (aggregate fields hold tensors).
             cur_head_id = split_kv_id - split_kv_id
+        elif cfg.GRID_MODE == "batch_head_split":
+            cur_batch = gl.program_id(0)
+            cur_head_id = gl.program_id(1)
+            split_kv_id = gl.program_id(2)
+        else:
+            gl.static_assert(False, "unsupported MLA grid mode")
 
         # Paged 2-D view: Req_to_tokens = block_table[batch, max_pages],
         # B_seq_len = cache_seqlens[batch].
@@ -774,6 +788,7 @@ def _mla_decode_gluon(
     NUM_XCDS: gl.constexpr,
     NHEAD: gl.constexpr,
     REGIME: gl.constexpr,
+    GRID_MODE: gl.constexpr,
     RETURN_LSE: gl.constexpr,
 ):
     cfg = AttentionConfig(
@@ -788,6 +803,7 @@ def _mla_decode_gluon(
         NUM_XCDS,
         NHEAD,
         REGIME,
+        GRID_MODE,
         RETURN_LSE,
         stride_q_nope_bs,
         stride_q_nope_h,
@@ -1175,6 +1191,16 @@ _WAVE_WORKGROUPS = 256
 
 _NUM_XCDS = 8
 
+_DEFAULT_SMALL_BATCH_LAUNCH = {
+    1: ("bh16-multiblock", 256),
+    2: ("bh64-small", 128),
+    4: ("bh64-small", 256),
+}
+
+_SMALL_BATCH_POLICIES = frozenset({"bh64-small", "bh16-multiblock"})
+
+_SMALL_BATCH_TARGET_WORKGROUPS = frozenset({64, 128, 256, 512})
+
 
 def _select_num_kv_splits_bh16bn64(
     *, batch: int, max_seqlen_k: int, block_n: int
@@ -1191,6 +1217,22 @@ def _select_num_kv_splits_bh64(
     return max(1, triton.next_power_of_2(triton.cdiv(_WAVE_WORKGROUPS, base_grid)))
 
 
+def _select_num_kv_splits_small_batch(
+    *,
+    batch: int,
+    nhead: int,
+    block_h: int,
+    max_seqlen_k: int,
+    block_n: int,
+    target_workgroups: int,
+) -> int:
+    head_blocks = (nhead + block_h - 1) // block_h
+    base_grid = batch * head_blocks
+    occupancy_splits = (target_workgroups + base_grid - 1) // base_grid
+    blocks = (max_seqlen_k + block_n - 1) // block_n
+    return max(1, min(occupancy_splits, blocks))
+
+
 def gluon_mla_decode_bf16_gfx950(
     q: torch.Tensor,
     kv_cache: torch.Tensor,
@@ -1205,6 +1247,9 @@ def gluon_mla_decode_bf16_gfx950(
     logit_cap: float = 0.0,
     return_lse: bool = False,
     out: torch.Tensor | None = None,
+    _launch_policy: str | None = None,
+    _target_workgroups: int | None = None,
+    _num_kv_splits: int | None = None,
 ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
     """Absorbed MLA decode over a paged compressed KV cache (gfx950, bf16).
 
@@ -1212,8 +1257,11 @@ def gluon_mla_decode_bf16_gfx950(
     ``kv_cache`` is ``[num_pages, page_size, 1, kv_lora_rank + qk_rope_head_dim]``
     (first ``kv_lora_rank`` latent, last ``qk_rope_head_dim`` RoPE). Output is
     ``[batch, 1, num_q_heads, kv_lora_rank]``. ``num_q_heads`` selects the
-    regime: ``bh16bn64`` (``<= 16``) or ``bh64`` (``{64, 128}``, ``batch_size``
-    divisible by 64).
+    compute regime: ``bh16bn64`` (``<= 16``) or ``bh64`` (``{64, 128}``).
+    Batches divisible by 64 use the XCD-aware bh64 grid. H64 batches 1, 2, and
+    4 use a batch-major grid with a tunable private launch policy; the private
+    arguments support kernel qualification and are not exposed through the
+    public TokenSpeed kernel API.
     """
     if logit_cap != 0.0:
         raise NotImplementedError(
@@ -1232,9 +1280,51 @@ def gluon_mla_decode_bf16_gfx950(
             f"got {kv_lora_rank}/{qk_rope_head_dim}"
         )
     batch_size, _, nhead, _ = q.shape
-    if nhead in (64, 128):
+    small_batch_h64 = nhead == 64 and batch_size in (1, 2, 4)
+    if small_batch_h64:
+        default_policy, default_target_workgroups = _DEFAULT_SMALL_BATCH_LAUNCH[
+            batch_size
+        ]
+        launch_policy = _launch_policy or default_policy
+        if launch_policy not in _SMALL_BATCH_POLICIES:
+            raise ValueError(
+                f"unsupported small-batch MLA launch policy {launch_policy!r}; "
+                f"expected one of {sorted(_SMALL_BATCH_POLICIES)}"
+            )
+        target_workgroups = (
+            _target_workgroups
+            if _target_workgroups is not None
+            else default_target_workgroups
+        )
+        if target_workgroups not in _SMALL_BATCH_TARGET_WORKGROUPS:
+            raise ValueError(
+                "small-batch MLA target workgroups must be one of "
+                f"{sorted(_SMALL_BATCH_TARGET_WORKGROUPS)}, got {target_workgroups}"
+            )
+        if _num_kv_splits is not None and _num_kv_splits <= 0:
+            raise ValueError(
+                f"small-batch MLA num KV splits must be positive, got {_num_kv_splits}"
+            )
+        if launch_policy == "bh64-small":
+            regime = "bh64"
+            block_h = 64
+        else:
+            regime = "bh16bn64"
+            block_h = 16
+        grid_mode = "batch_head_split"
+        num_xcds = 1
+    elif nhead in (64, 128):
+        if (
+            _launch_policy is not None
+            or _target_workgroups is not None
+            or _num_kv_splits is not None
+        ):
+            raise ValueError(
+                "small-batch MLA launch overrides require H=64 and B in {1, 2, 4}"
+            )
         regime = "bh64"
         block_h = 64
+        grid_mode = "xcd"
         num_xcds = _NUM_XCDS
         if batch_size % 64 != 0:
             raise NotImplementedError(
@@ -1242,8 +1332,17 @@ def gluon_mla_decode_bf16_gfx950(
                 f"batch_size divisible by 64, got {batch_size}"
             )
     elif 1 <= nhead <= 16:
+        if (
+            _launch_policy is not None
+            or _target_workgroups is not None
+            or _num_kv_splits is not None
+        ):
+            raise ValueError(
+                "small-batch MLA launch overrides require H=64 and B in {1, 2, 4}"
+            )
         regime = "bh16bn64"
         block_h = 16
+        grid_mode = "batch_split"
         num_xcds = 1  # unused by the 2-D (batch, split) grid
     else:
         raise NotImplementedError(
@@ -1297,7 +1396,20 @@ def gluon_mla_decode_bf16_gfx950(
     max_kv_bytes = kv_c.shape[0] * kv_c.stride(0) * kv_c.element_size()
     within_2gb = max_kv_bytes <= 0x80000000
 
-    if regime == "bh64":
+    if small_batch_h64:
+        num_kv_splits = (
+            _num_kv_splits
+            if _num_kv_splits is not None
+            else _select_num_kv_splits_small_batch(
+                batch=batch_size,
+                nhead=nhead,
+                block_h=block_h,
+                max_seqlen_k=max_seqlen_k,
+                block_n=64,
+                target_workgroups=target_workgroups,
+            )
+        )
+    elif regime == "bh64":
         num_kv_splits = _select_num_kv_splits_bh64(
             batch=batch_size, nhead=nhead, num_xcds=num_xcds, block_h=block_h
         )
@@ -1307,14 +1419,16 @@ def gluon_mla_decode_bf16_gfx950(
         )
 
     def _grid(splits: int) -> tuple[int, ...]:
-        if regime == "bh64":
+        if grid_mode == "xcd":
             # 3-D XCD-aware: (NUM_XCDS, head_block, (batch // NUM_XCDS) * splits).
             return (
                 num_xcds,
                 (nhead + block_h - 1) // block_h,
                 (batch_size // num_xcds) * splits,
             )
-        return (batch_size, splits)
+        if grid_mode == "batch_split":
+            return (batch_size, splits)
+        return (batch_size, (nhead + block_h - 1) // block_h, splits)
 
     common_kwargs = dict(
         BLOCK_H=block_h,
@@ -1328,6 +1442,7 @@ def gluon_mla_decode_bf16_gfx950(
         NUM_XCDS=num_xcds,
         NHEAD=nhead,
         REGIME=regime,
+        GRID_MODE=grid_mode,
         RETURN_LSE=return_lse,
         num_warps=4,
     )
