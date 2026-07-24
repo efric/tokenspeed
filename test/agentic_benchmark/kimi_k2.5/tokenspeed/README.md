@@ -18,26 +18,43 @@ outputs/<sweep_ts>/<config>/parallel_<P>_number_<N>/  # per-run evalscope artifa
 ## Run a sweep
 
 ```bash
-cd test/agentic_benchmark/tokenspeed
+source /home/ericfeng/distributed/.venvs/tokenspeed/bin/activate
+cd test/agentic_benchmark/kimi_k2.5/tokenspeed
 ./agentic_bench.sh
 ```
 
-The script (1) installs evalscope at the pinned commit, (2) builds the SWE-Smith
-multi-turn dataset, (3) iterates each config in `CONFIGS=()`: launch server, poll
-`/readiness` until ready, run `evalscope perf`, kill server, wait for the port to be
-free, repeat. Aborts the whole sweep on the first failure (`set -e`).
+The script (1) installs EvalScope at the pinned commit, (2) builds the SWE-Smith
+multi-turn dataset, and (3) iterates each selected configuration: launch the
+server, poll `/readiness`, run serving and agentic `evalscope perf` phases,
+stop the server, and wait for the port to be free. It aborts the sweep on the
+first failure (`set -e`).
 
-To narrow the matrix, comment out entries in the `CONFIGS=()` array.
+The default matrix contains the two AMD attention-DP profiles. Select one
+without editing the script:
+
+```bash
+BENCH_CONFIGS=attn_dp8_moe_tp8 ./agentic_bench.sh
+BENCH_CONFIGS=attn_dp8_moe_ep8 ./agentic_bench.sh
+```
+
+Before every launch, the harness requires eight GPUs that remain at zero
+utilization, zero allocated VRAM, and without KFD owners across consecutive
+`rocm-smi` samples. It exposes only those selected IDs to the server.
+
+See [MINIMAL_DP8_ENABLEMENT.md](MINIMAL_DP8_ENABLEMENT.md) for exact commands,
+isolated persistent-only results, patch boundaries, evidence hashes, and the
+remaining EP8 acceptance gap.
 
 ## Configs
 
 Each `configs/*.sh` `exec`s `ts serve` with the full flag set for one
 layout. Key flags:
 
-- `--attn-tp-size`, `--moe-tp-size` *or* `--ep-size`
+- `--data-parallel-size 8`, with `--moe-tp-size 8` *or* `--ep-size 8`
 - `--max-num-seqs`, `--max-prefill-tokens`, `--chunked-prefill-size`
-- `--quantization nvfp4`, `--kv-cache-dtype fp8`
-- `--moe-backend flashinfer_trtllm`, `--attention-backend tokenspeed_mla`
+- `--quantization mxfp4`
+- `--attention-backend mla`, `--drafter-attention-backend mha`
+- `--moe-backend gluon` for TP8 or `--moe-backend triton` for EP8
 - Eagle3 spec-dec: `--speculative-algorithm EAGLE3 --speculative-num-steps 3
   --speculative-eagle-topk 1 --speculative-num-draft-tokens 4`
 
