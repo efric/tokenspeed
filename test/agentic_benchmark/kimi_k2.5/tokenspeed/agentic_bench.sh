@@ -65,11 +65,17 @@ SELECTED_GPU_IDS=
 
 wait_for_idle_gpus() {
     local poll_interval=${GPU_POLL_INTERVAL_SECONDS:-30}
+    local stable_checks=${GPU_IDLE_STABLE_CHECKS:-3}
+    local stable_count=0
 
     command -v rocm-smi >/dev/null || {
         echo "rocm-smi is required to verify GPU availability" >&2
         return 1
     }
+    if [[ ! $stable_checks =~ ^[1-9][0-9]*$ ]]; then
+        echo "GPU_IDLE_STABLE_CHECKS must be a positive integer" >&2
+        return 1
+    fi
 
     while true; do
         local gpu_state
@@ -122,12 +128,19 @@ wait_for_idle_gpus() {
                 }
             ' <<< "$gpu_state"); then
                 SELECTED_GPU_IDS=$selected
-                printf '%s\n' "$gpu_state"
-                printf '%s\n' "$pid_state"
-                echo "Confirmed idle GPU(s) ${SELECTED_GPU_IDS} immediately before launch"
-                return 0
+                ((stable_count += 1))
+                if (( stable_count >= stable_checks )); then
+                    printf '%s\n' "$gpu_state"
+                    printf '%s\n' "$pid_state"
+                    echo "Confirmed idle GPU(s) ${SELECTED_GPU_IDS} across ${stable_count} consecutive checks immediately before launch"
+                    return 0
+                fi
+                echo "Idle GPU check ${stable_count}/${stable_checks}; confirming reservation..."
+            else
+                stable_count=0
             fi
         else
+            stable_count=0
             echo "rocm-smi utilization or KFD-process refresh failed; not launching" >&2
         fi
 
