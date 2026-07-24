@@ -28,13 +28,17 @@ fix-dp-kimi-minimal-enablement
   focused tests and four-GPU CI proxy
 ```
 
-It deliberately retains the original AMD token RSAG algorithm. The one-launch
-RSAG refactor is preserved separately on
-`fix-dp-kimi-one-launch-candidate`. Focused investigation found structural
-forward-progress and publication risks in the old algorithm, but did not
-reproduce an old-kernel hang or localize either observed model failure to an
-RSAG instruction. It is consequently a valuable general hardening and
-performance follow-up, not a proven prerequisite for this minimal patch.
+It deliberately retains the original AMD token RSAG algorithm. The canonical
+isolated one-launch follow-up is `fix-dp-kimi-rsag-hang` at `441911a`; its
+analysis is in `amd_rsag_refactor_analysis.md` on that branch. The earlier
+integrated snapshot is retained as `fix-dp-kimi-one-launch-candidate` only for
+provenance.
+
+Focused investigation found structural forward-progress and publication risks
+in the old algorithm, but did not reproduce an old-kernel hang or localize
+either observed model failure to an RSAG instruction. It is consequently a
+valuable general hardening and performance follow-up, not a proven prerequisite
+for this minimal patch.
 
 Because model benchmarking was intentionally concluded after the latest round,
 this document does not claim that the exact final branch passes EP8 concurrency
