@@ -264,6 +264,53 @@ def _test_token_ops(rank, world_size, device, group, ref_group):
     assert gathered.shape[0] == total_tokens
 
 
+def _test_token_ops_inference_initialized_state(
+    rank, world_size, device, group, ref_group
+):
+    """Persistent RS/AG state remains mutable across inference-mode boundaries."""
+    if torch.version.hip is None:
+        return
+
+    from tokenspeed.runtime.distributed.comm_ops import (
+        token_all_gather,
+        token_reduce_scatter,
+    )
+
+    hidden_size = 256
+    tokens_per_rank = 8
+    scattered = [tokens_per_rank] * world_size
+    gather_input = torch.full(
+        (tokens_per_rank, hidden_size),
+        rank + 1,
+        dtype=torch.bfloat16,
+        device=device,
+    )
+
+    # Model forward lazily creates the state under inference_mode. Idle forward
+    # later reuses the same symmetric buffer without inference_mode.
+    with torch.inference_mode():
+        gathered = token_all_gather(gather_input, group, scattered_num_tokens=scattered)
+    expected_gathered = torch.cat(
+        [torch.full_like(gather_input, peer + 1) for peer in range(world_size)], dim=0
+    )
+    torch.testing.assert_close(gathered, expected_gathered)
+
+    total_tokens = sum(scattered)
+    scatter_input = torch.full(
+        (total_tokens, hidden_size),
+        rank + 1,
+        dtype=torch.bfloat16,
+        device=device,
+    )
+    scattered_out = token_reduce_scatter(
+        scatter_input, group, scattered_num_tokens=scattered
+    )
+    expected_scattered = torch.full_like(
+        scattered_out, world_size * (world_size + 1) // 2
+    )
+    torch.testing.assert_close(scattered_out, expected_scattered)
+
+
 def _test_fused_ops(rank, world_size, device, group, ref_group):
     from tokenspeed.runtime.distributed.comm_ops import (
         FusionOp,
@@ -381,6 +428,10 @@ class TestCommOps:
     @pytest.mark.parametrize("world_size", WORLD_SIZES)
     def test_token_ops(self, world_size):
         _run(world_size, _test_token_ops)
+
+    @pytest.mark.parametrize("world_size", WORLD_SIZES)
+    def test_token_ops_inference_initialized_state(self, world_size):
+        _run(world_size, _test_token_ops_inference_initialized_state)
 
     @pytest.mark.parametrize("world_size", WORLD_SIZES)
     def test_fused_ops(self, world_size):

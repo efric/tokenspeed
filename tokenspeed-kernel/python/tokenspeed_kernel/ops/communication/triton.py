@@ -1235,10 +1235,11 @@ def amd_create_rsag_state(
     symm_mem.set_signal_pad_size(max(symm_mem.get_signal_pad_size(), pad_bytes))
 
     free_gpu_memory_begin = _get_available_gpu_memory(torch.cuda.current_device())
-    comm_buff = symm_mem.empty(
-        (max_tokens, hidden_size), dtype=torch.bfloat16, device=device
+    # This state is lazily initialized during inference-mode model forward, but
+    # idle forward later mutates the persistent workspace outside inference mode.
+    comm_buff, symm_mem_hdl = _alloc_symm(
+        (max_tokens, hidden_size), torch.bfloat16, device, group
     )
-    symm_mem_hdl = symm_mem.rendezvous(comm_buff, group=group)
     free_gpu_memory_after = _get_available_gpu_memory(torch.cuda.current_device())
     logger.info(
         f"Custom Triton RSAG AMD symmetric-memory buffer allocated: {free_gpu_memory_begin - free_gpu_memory_after} GB"
