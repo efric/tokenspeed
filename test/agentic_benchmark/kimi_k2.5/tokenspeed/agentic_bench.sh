@@ -10,6 +10,14 @@ cd "$SCRIPT_DIR"
 # point at another worktree.
 export PYTHONPATH="${REPO_ROOT}/python:${REPO_ROOT}/tokenspeed-kernel/python${PYTHONPATH:+:${PYTHONPATH}}"
 
+SOURCE_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
+if [[ -n $(git -C "$REPO_ROOT" status --porcelain) ]]; then
+    SOURCE_STATE=dirty
+else
+    SOURCE_STATE=clean
+fi
+echo "TokenSpeed source: ${SOURCE_REVISION} (${SOURCE_STATE}) at ${REPO_ROOT}"
+
 SERVER_PORT=${SERVER_PORT:-8000}
 DIST_INIT_ADDR=${DIST_INIT_ADDR:-127.0.0.1:4000}
 EVALSCOPE_TURN_ARGS=()
