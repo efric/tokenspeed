@@ -177,6 +177,39 @@ The inference-tensor mutation exception did not recur. This is evidence that
 the persistent defect was resolved, not evidence that the complete EP8 profile
 was accepted.
 
+## Why the earlier complete matrix is not minimal-branch proof
+
+An earlier bounded run completed startup, serving, and all five agentic points
+for both profiles:
+
+```text
+/tmp/tokenspeed-kimi-dp8-agentic-final.log
+outputs/20260723_070802/attn_dp8_moe_tp8
+outputs/20260723_070802/attn_dp8_moe_ep8
+```
+
+Each profile served 6/6 requests and completed 204/204 agentic turn requests
+across concurrency 1, 2, 4, 8, and 16. This is useful end-to-end capability
+evidence, but it cannot close the acceptance gap for this branch.
+
+That run predated commit `c52c818`, so its log did not record the source
+revision or dirty-tree diff. The preserved command history establishes the
+relevant ordering:
+
+1. The one-wave, one-launch RSAG candidate was compiled and exercised as
+   `one-wave-leader-v11`.
+2. No source edit restored the original RSAG afterward.
+3. The full matrix command was launched 23 seconds later from the same
+   worktree.
+4. Contemporaneous validation also exercised the remote-route exclusion
+   implementation.
+
+The full matrix therefore used at least the persistent-buffer fix, an RSAG
+refactor, and EP route exclusion. Its exact dirty source snapshot was not
+recorded as a Git commit. It proves that an integrated implementation can carry
+both workloads, but it is not evidence that the persistent-buffer-only
+production state can do so.
+
 ## Why EP route exclusion is a follow-up
 
 In EP8, global top-k expert IDs owned by other ranks localize to `-1`. The old
@@ -352,6 +385,9 @@ dc165603f0e27a389c2f94d12cb00510cc8b741e261ac13b66f2477029bbbf64  /tmp/tokenspee
 0dc60cec144970fc9decb9a307359fae8b3e03f341c5f79ac9ee93e8d48b9b11  /tmp/tokenspeed_server_attn_dp8_moe_ep8-persistent-only-fault-20260724.log
 b5bff6bbebcaf9efaab0d2eecb7542c910f8106855430db0a9141f2987c6376e  /tmp/tokenspeed-kimi-minimal-ep8-route-full-20260724.log
 92a53ca47580d7a7c93a25cf036ca461f7e0bbc37e0f82ca8ac5cad76f836347  /tmp/tokenspeed_server_attn_dp8_moe_ep8.log
+23b95ec30d17b93bd68a27ab4059c078ef75f8b2a7cbc9ee2d05587df33f5564  /tmp/tokenspeed-kimi-dp8-agentic-final.log
+c2b3bfc97b1fa2e193fda91aea786fc85033bc15eac4423861eb07574d08dce0  outputs/20260723_070802/attn_dp8_moe_tp8/performance_summary.txt
+2049bb1dca457d19a37788a49099aeb5774faa32f224efa4a1f10779f815893b  outputs/20260723_070802/attn_dp8_moe_ep8/performance_summary.txt
 ```
 
 ## Explicit acceptance gap
