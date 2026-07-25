@@ -7,8 +7,9 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 cd "$SCRIPT_DIR"
 
 # Always exercise this checkout, even when the venv has editable installs that
-# point at another worktree.
-export PYTHONPATH="${REPO_ROOT}/python:${REPO_ROOT}/tokenspeed-kernel/python${PYTHONPATH:+:${PYTHONPATH}}"
+# point at another worktree. Include the separately packaged AMD implementations
+# as well as the vendor-neutral runtime and kernel API.
+export PYTHONPATH="${REPO_ROOT}/python:${REPO_ROOT}/tokenspeed-kernel/python:${REPO_ROOT}/tokenspeed-kernel-amd/python${PYTHONPATH:+:${PYTHONPATH}}"
 
 SOURCE_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
 if [[ -n $(git -C "$REPO_ROOT" status --porcelain) ]]; then

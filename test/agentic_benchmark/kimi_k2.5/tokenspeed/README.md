@@ -4,7 +4,10 @@ Sweep `ts serve` against an agentic, multi-turn workload (SWE-Smith) at a
 fixed set of attention/MoE parallelism layouts and report per-config throughput,
 latency, and KV-cache hit rate.
 
-Server listens on port **8000**.
+The server listens on port **8000** by default. The harness prepends the
+runtime, portable kernel, and separately packaged AMD kernel roots from the
+current checkout to `PYTHONPATH`, so editable installs from another worktree do
+not affect the result.
 
 ## Layout
 
@@ -18,16 +21,32 @@ outputs/<sweep_ts>/<config>/parallel_<P>_number_<N>/  # per-run evalscope artifa
 ## Run a sweep
 
 ```bash
-cd test/agentic_benchmark/tokenspeed
+source /home/ericfeng/distributed/.venvs/tokenspeed/bin/activate
+cd test/agentic_benchmark/kimi_k2.5/tokenspeed
 ./agentic_bench.sh
 ```
 
 The script (1) installs evalscope at the pinned commit, (2) builds the SWE-Smith
 multi-turn dataset, (3) iterates each config in `CONFIGS=()`: launch server, poll
 `/readiness` until ready, run `evalscope perf`, kill server, wait for the port to be
-free, repeat. Aborts the whole sweep on the first failure (`set -e`).
+free, repeat. Before each launch, it requires eight GPUs to remain idle across
+several consecutive `rocm-smi` checks. It aborts the whole sweep on the first
+failure (`set -e`).
 
-To narrow the matrix, comment out entries in the `CONFIGS=()` array.
+Use `BENCH_CONFIGS` for an isolated profile, and override the HTTP and distributed
+initialization ports when the defaults are occupied:
+
+```bash
+BENCH_CONFIGS=attn_dp8_moe_ep8 \
+GPU_IDLE_STABLE_CHECKS=7 \
+SERVER_PORT=8130 \
+DIST_INIT_ADDR=127.0.0.1:4230 \
+./agentic_bench.sh
+```
+
+The generated dataset contains 10–15 turns per conversation. Leave
+`AGENTIC_MAX_TURNS` unset for the complete sweep; setting it is intended only
+for bounded debugging.
 
 ## Configs
 
@@ -36,8 +55,8 @@ layout. Key flags:
 
 - `--attn-tp-size`, `--moe-tp-size` *or* `--ep-size`
 - `--max-num-seqs`, `--max-prefill-tokens`, `--chunked-prefill-size`
-- `--quantization nvfp4`, `--kv-cache-dtype fp8`
-- `--moe-backend flashinfer_trtllm`, `--attention-backend tokenspeed_mla`
+- AMD model/quantization: `amd/Kimi-K2.5-MXFP4`, `--quantization mxfp4`
+- AMD backends: `--moe-backend triton`, `--attention-backend mla`
 - Eagle3 spec-dec: `--speculative-algorithm EAGLE3 --speculative-num-steps 3
   --speculative-eagle-topk 1 --speculative-num-draft-tokens 4`
 
