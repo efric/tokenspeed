@@ -32,9 +32,13 @@ from numbers import Real
 from pathlib import Path
 from typing import Any
 
-from tokenspeed_kernel._triton import proton
+from tokenspeed_kernel._triton import load_proton, proton_module_available
 
-_HAS_PROTON = proton is not None
+# Loading Proton configures rocprofiler-sdk on AMD. Do not import it merely to
+# expose TokenSpeed's optional profiling control path: an external rocprofv3
+# process must retain ownership of the SDK configuration window.
+proton = None
+_HAS_PROTON = proton_module_available()
 
 __all__ = [
     "CapturedShape",
@@ -261,6 +265,13 @@ def proton_available() -> bool:
     return _HAS_PROTON
 
 
+def _get_proton():
+    global proton
+    if proton is None and _HAS_PROTON:
+        proton = load_proton()
+    return proton
+
+
 def profile_config_from_env(output: str | None = None) -> ProfilingConfig:
     """Build a :class:`ProfilingConfig` from ``TOKENSPEED_KERNEL_PROFILE_*``.
 
@@ -293,8 +304,13 @@ def start_profiling(config: ProfilingConfig | None = None) -> int | None:
         warnings.warn("Proton not installed; profiling disabled", stacklevel=2)
         return None
 
+    proton_module = _get_proton()
+    if proton_module is None:
+        warnings.warn("Proton not installed; profiling disabled", stacklevel=2)
+        return None
+
     config = config or ProfilingConfig()
-    session = proton.start(
+    session = proton_module.start(
         config.output,
         data=config.data,
         backend=config.backend,
@@ -317,7 +333,9 @@ def stop_profiling() -> None:
 
     output_format = state._config.output_format if state._config is not None else ""
     try:
-        proton.finalize(state._session, output_format)
+        proton_module = _get_proton()
+        if proton_module is not None:
+            proton_module.finalize(state._session, output_format)
     finally:
         # Keep wrapper state recoverable even when report serialization fails.
         state._session = None
@@ -385,7 +403,10 @@ def kernel_scope(
 
     name = f"{family}.{mode}[{kernel_name}]" if kernel_name else f"{family}.{mode}"
     scope_metrics = _proton_metrics(metrics)
-    return _VizTracerProtonScope(proton.scope(name, metrics=scope_metrics))
+    proton_module = _get_proton()
+    if proton_module is None:
+        return _NOOP_SCOPE
+    return _VizTracerProtonScope(proton_module.scope(name, metrics=scope_metrics))
 
 
 def _atexit_stop_profiling() -> None:

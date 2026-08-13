@@ -1956,10 +1956,14 @@ def all_reduce(state: TritonCommState, tensor: torch.Tensor, op=None) -> torch.T
         key = (id(state.group), state.max_bytes, tensor.dtype)
         iris_state = _iris_mod.IRIS_AR_STATES.get(key)
         if iris_state is None:
+            # The ordinary all-reduce admission window can be smaller than
+            # the backing allocation reserved for producer-direct outputs.
+            # Both paths intentionally share this cache key, so the first
+            # caller must create an Iris state at the full byte capacity.
             iris_state = _iris_mod.create_iris_state(
                 group=state.group,
                 rank_in_group=state.rank_in_group,
-                max_numel=state.max_numel,
+                max_numel=state.max_bytes // tensor.dtype.itemsize,
                 dtype=tensor.dtype,
                 device=state.device,
             )
