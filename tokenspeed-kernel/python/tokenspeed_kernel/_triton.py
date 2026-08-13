@@ -27,10 +27,10 @@ import importlib
 import importlib.abc
 import importlib.util
 import sys
+from types import ModuleType
 
 import tokenspeed_triton as triton
 import tokenspeed_triton.experimental.gluon.language as gl
-import tokenspeed_triton.profiler as proton
 from tokenspeed_triton import language as tl
 from tokenspeed_triton.experimental import gluon
 from tokenspeed_triton.language.core import _aggregate as aggregate
@@ -43,11 +43,32 @@ __all__ = [
     "gl",
     "gluon",
     "libdevice",
-    "proton",
+    "load_proton",
+    "proton_module_available",
     "redirect_triton_to_tokenspeed_triton",
     "tl",
     "triton",
 ]
+
+
+def proton_module_available() -> bool:
+    """Return whether the vendored Proton module is installed without loading it."""
+
+    return importlib.util.find_spec("tokenspeed_triton.profiler") is not None
+
+
+def load_proton() -> ModuleType | None:
+    """Load vendored Proton only when profiling is explicitly requested.
+
+    Proton configures rocprofiler-sdk from its shared-library initializer on AMD.
+    Keeping this import lazy lets external rocprofv3 own the SDK configuration
+    window during ordinary TokenSpeed serving.
+    """
+
+    try:
+        return importlib.import_module("tokenspeed_triton.profiler")
+    except ImportError:
+        return None
 
 
 _TRITON_SRC = "triton"

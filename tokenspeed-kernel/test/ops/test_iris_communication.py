@@ -19,10 +19,12 @@
 # SOFTWARE.
 
 
+import math
 import socket
 import traceback
 from types import SimpleNamespace
 from typing import List, Tuple
+from unittest import mock
 
 import pytest
 import torch
@@ -156,6 +158,49 @@ def test_producer_direct_admission_is_cdna4_only(monkeypatch):
         state,
         ((4,),),
         torch.bfloat16,
+    )
+
+
+def test_ordinary_all_reduce_initializes_full_producer_direct_capacity(monkeypatch):
+    from tokenspeed_kernel.ops.communication import iris as iris_ops
+    from tokenspeed_kernel.ops.communication import triton as triton_ops
+
+    platform = SimpleNamespace(is_amd=True, is_cdna4=True)
+    monkeypatch.setattr(triton_ops, "current_platform", lambda: platform)
+    monkeypatch.setattr(triton_ops, "all_reduce_can_run", lambda *_args, **_kw: True)
+    monkeypatch.setattr(iris_ops, "IRIS_AR_STATES", {})
+
+    created_state = SimpleNamespace(max_numel=512)
+    create_iris_state = mock.Mock(return_value=created_state)
+    monkeypatch.setattr(iris_ops, "create_iris_state", create_iris_state)
+    monkeypatch.setattr(iris_ops, "iris_all_reduce", lambda *_args, **_kw: object())
+
+    def acquire_outputs(state, shapes):
+        assert sum(math.prod(shape) for shape in shapes) <= state.max_numel
+        return (object(),)
+
+    monkeypatch.setattr(iris_ops, "iris_acquire_outputs", acquire_outputs)
+
+    group = object()
+    state = SimpleNamespace(
+        group=group,
+        rank_in_group=0,
+        world_size=8,
+        max_numel=256,
+        max_bytes=1024,
+        device=torch.device("cpu"),
+    )
+    tensor = SimpleNamespace(dtype=torch.bfloat16)
+
+    triton_ops.all_reduce(state, tensor)
+    triton_ops.acquire_symm_outputs(state, ((300,),), torch.bfloat16)
+
+    create_iris_state.assert_called_once_with(
+        group=group,
+        rank_in_group=0,
+        max_numel=512,
+        dtype=torch.bfloat16,
+        device=torch.device("cpu"),
     )
 
 
