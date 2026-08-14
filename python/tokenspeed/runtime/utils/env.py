@@ -27,6 +27,7 @@ from tokenspeed.runtime.utils.pdl import pdl_enabled
 from tokenspeed.runtime.utils.server_args import ServerArgs
 
 global_server_args_dict: dict = {
+    "load_format": ServerArgs.load_format,
     "attention_backend": ServerArgs.attention_backend,
     "sampling_backend": ServerArgs.sampling_backend,
     "attention_use_fp4_indexer_cache": ServerArgs.attention_use_fp4_indexer_cache,
@@ -48,6 +49,7 @@ global_server_args_dict: dict = {
     "chunked_prefill_size": ServerArgs.chunked_prefill_size,
     "mla_chunk_multiplier": ServerArgs.mla_chunk_multiplier,
     "ep_num_redundant_experts": ServerArgs.ep_num_redundant_experts,
+    "init_expert_location": ServerArgs.init_expert_location,
     "ep_dispatch_algorithm": ServerArgs.ep_dispatch_algorithm,
     "enable_eplb": ServerArgs.enable_eplb,
     "mm_attention_backend": ServerArgs.mm_attention_backend,
@@ -57,6 +59,7 @@ global_server_args_dict: dict = {
     "max_model_len": ServerArgs.max_model_len,
     "max_num_seqs": ServerArgs.max_num_seqs,
     "moe_backend": ServerArgs.moe_backend,
+    "enable_kimi_k3_megamoe": ServerArgs.enable_kimi_k3_megamoe,
     "enforce_eager": ServerArgs.enforce_eager,
     "max_cudagraph_capture_size": ServerArgs.max_cudagraph_capture_size,
     "cudagraph_capture_sizes": ServerArgs.cudagraph_capture_sizes,
@@ -74,6 +77,9 @@ def global_server_args_dict_update(server_args: ServerArgs):
         os.environ["TOKENSPEED_DISABLE_PDL"] = "1"
     global_server_args_dict.update(
         {
+            "load_format": str(
+                getattr(server_args.load_format, "value", server_args.load_format)
+            ).lower(),
             "attention_backend": server_args.attention_backend,
             "sampling_backend": server_args.sampling_backend,
             "attention_use_fp4_indexer_cache": server_args.attention_use_fp4_indexer_cache,
@@ -97,6 +103,7 @@ def global_server_args_dict_update(server_args: ServerArgs):
             "chunked_prefill_size": server_args.chunked_prefill_size,
             "mla_chunk_multiplier": server_args.mla_chunk_multiplier,
             "ep_num_redundant_experts": server_args.ep_num_redundant_experts,
+            "init_expert_location": server_args.init_expert_location,
             "ep_dispatch_algorithm": server_args.ep_dispatch_algorithm,
             "enable_eplb": server_args.enable_eplb,
             "mm_attention_backend": server_args.mm_attention_backend,
@@ -106,6 +113,7 @@ def global_server_args_dict_update(server_args: ServerArgs):
             "max_model_len": server_args.max_model_len,
             "max_num_seqs": server_args.max_num_seqs,
             "moe_backend": server_args.moe_backend,
+            "enable_kimi_k3_megamoe": server_args.enable_kimi_k3_megamoe,
             "enforce_eager": server_args.enforce_eager,
             "max_cudagraph_capture_size": server_args.max_cudagraph_capture_size,
             "cudagraph_capture_sizes": server_args.cudagraph_capture_sizes,

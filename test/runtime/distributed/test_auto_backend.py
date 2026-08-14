@@ -325,6 +325,210 @@ def test_acquire_all_reduce_outputs_preserves_trtllm(backend, monkeypatch):
     backend._triton_ar.acquire_all_reduce_outputs.assert_not_called()
 
 
+def test_acquire_producer_direct_lane_uses_rank_uniform_triton_path(
+    backend, monkeypatch
+):
+    monkeypatch.setitem(global_server_args_dict, "force_deterministic_rsag", False)
+    monkeypatch.setitem(global_server_args_dict, "mapping", None)
+    monkeypatch.setattr(
+        "tokenspeed.runtime.distributed.comm_backend.auto.current_platform",
+        lambda: SimpleNamespace(is_amd=True),
+    )
+    backend._trtllm_ar.has_trtllm_ar.return_value = False
+    expected = object()
+    backend._triton_ar.acquire_producer_direct_lane.return_value = expected
+    like = torch.empty(1, 3584, dtype=torch.bfloat16)
+    shapes = ((1, 7168), (1, 3584))
+
+    result = backend.acquire_producer_direct_lane(shapes, like, (0, 1))
+
+    assert result is expected
+    backend._triton_ar.acquire_producer_direct_lane.assert_called_once_with(
+        shapes,
+        like,
+        (0, 1),
+        local_status=0,
+        local_reason="",
+    )
+
+
+def test_acquire_producer_direct_lane_forwards_local_failure_to_consensus(
+    backend,
+):
+    expected = object()
+    backend._triton_ar.acquire_producer_direct_lane.return_value = expected
+    like = torch.empty(1, 3584, dtype=torch.bfloat16)
+    shapes = ((1, 7168), (1, 3584))
+
+    result = backend.acquire_producer_direct_lane(
+        shapes,
+        like,
+        (0, 1),
+        local_status=17,
+        local_reason="bad weights",
+    )
+
+    assert result is expected
+    backend._triton_ar.acquire_producer_direct_lane.assert_called_once_with(
+        shapes,
+        like,
+        (0, 1),
+        local_status=17,
+        local_reason="bad weights",
+    )
+
+
+def test_acquire_producer_direct_lane_routes_uniform_policy_failure_to_consensus(
+    backend, monkeypatch
+):
+    monkeypatch.setitem(global_server_args_dict, "force_deterministic_rsag", True)
+    like = torch.empty(1, 3584, dtype=torch.bfloat16)
+    shapes = ((1, 7168), (1, 3584))
+
+    backend.acquire_producer_direct_lane(shapes, like, (0, 1))
+
+    backend._triton_ar.acquire_producer_direct_lane.assert_called_once_with(
+        shapes,
+        like,
+        (0, 1),
+        local_status=2001,
+        local_reason="deterministic RSAG disables producer-direct",
+    )
+
+
+def test_producer_direct_status_consensus_delegates_to_control_backend(backend):
+    backend.consensus_producer_direct_lane_status(
+        (0, 1),
+        stage="compile",
+        local_status=23,
+        local_reason="compile failed",
+    )
+
+    backend._triton_ar.consensus_producer_direct_lane_status.assert_called_once_with(
+        (0, 1),
+        stage="compile",
+        local_status=23,
+        local_reason="compile failed",
+    )
+
+
+def test_triton_status_consensus_reports_same_rank_ordered_failure(monkeypatch):
+    backend = TritonAllReduceBackend(Mock())
+    control_group = object()
+    monkeypatch.setattr(
+        triton_allreduce_module.pg_manager,
+        "get_process_group",
+        lambda backend_name, group: control_group,
+    )
+
+    def gather(statuses, _payload, group):
+        assert group is control_group
+        statuses[:] = [
+            ("compile", 0, ""),
+            ("compile", 31, "resource mismatch"),
+        ]
+
+    monkeypatch.setattr(triton_allreduce_module.dist, "all_gather_object", gather)
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"producer-direct compile consensus failed: rank 5: status 31",
+    ):
+        backend.consensus_producer_direct_lane_status(
+            (3, 5),
+            stage="compile",
+            local_status=0,
+        )
+
+
+def test_triton_lane_does_not_initialize_iris_before_consensus(monkeypatch):
+    backend = TritonAllReduceBackend(Mock())
+    get_or_create = Mock(side_effect=AssertionError("must not initialize Iris"))
+    monkeypatch.setattr(backend, "_get_or_create", get_or_create)
+    monkeypatch.setattr(
+        backend,
+        "consensus_producer_direct_lane_status",
+        Mock(side_effect=RuntimeError("rank 1 rejected")),
+    )
+    like = Mock(is_cuda=True, dtype=torch.bfloat16)
+
+    with pytest.raises(RuntimeError, match="rank 1 rejected"):
+        backend.acquire_producer_direct_lane(
+            ((1, 7168), (1, 3584)),
+            like,
+            (0, 1),
+            local_status=9,
+            local_reason="bad layout",
+        )
+
+    get_or_create.assert_not_called()
+
+
+def test_triton_lane_reuses_state_after_unanimous_admission(monkeypatch):
+    backend = TritonAllReduceBackend(Mock())
+    state = object()
+    lane = object()
+    monkeypatch.setattr(
+        triton_allreduce_module,
+        "current_platform",
+        lambda: SimpleNamespace(is_cdna4=True),
+    )
+    monkeypatch.setattr(triton_allreduce_module.dist, "get_rank", lambda: 0)
+    monkeypatch.setattr(
+        backend,
+        "consensus_producer_direct_lane_status",
+        Mock(),
+    )
+    monkeypatch.setattr(backend, "_get_or_create", Mock(return_value=state))
+    acquire = Mock(return_value=lane)
+    monkeypatch.setattr(
+        triton_allreduce_module,
+        "kernel_acquire_producer_direct_lane",
+        acquire,
+    )
+    like = Mock(is_cuda=True, dtype=torch.bfloat16)
+    shapes = ((1, 7168), (1, 3584))
+
+    assert backend.acquire_producer_direct_lane(shapes, like, (0, 1)) is lane
+    acquire.assert_called_once_with(state, shapes, torch.bfloat16)
+
+
+def test_triton_lane_consensuses_post_acquisition_failure(monkeypatch):
+    backend = TritonAllReduceBackend(Mock())
+    state = object()
+    monkeypatch.setattr(
+        triton_allreduce_module,
+        "current_platform",
+        lambda: SimpleNamespace(is_cdna4=True),
+    )
+    monkeypatch.setattr(triton_allreduce_module.dist, "get_rank", lambda: 0)
+    consensus = Mock(
+        side_effect=[None, RuntimeError("lane acquisition consensus failed")]
+    )
+    monkeypatch.setattr(
+        backend,
+        "consensus_producer_direct_lane_status",
+        consensus,
+    )
+    monkeypatch.setattr(backend, "_get_or_create", Mock(return_value=state))
+    monkeypatch.setattr(
+        triton_allreduce_module,
+        "kernel_acquire_producer_direct_lane",
+        Mock(side_effect=RuntimeError("lane validation failed")),
+    )
+    like = Mock(is_cuda=True, dtype=torch.bfloat16)
+
+    with pytest.raises(RuntimeError, match="lane acquisition consensus failed"):
+        backend.acquire_producer_direct_lane(((1, 7168), (1, 3584)), like, (0, 1))
+
+    assert consensus.call_count == 2
+    assert consensus.call_args_list[1].kwargs == {
+        "stage": "lane_acquisition",
+        "local_status": 1100,
+        "local_reason": "lane acquisition raised RuntimeError: lane validation failed",
+    }
+
+
 def test_symmetric_outputs_route_back_to_triton(backend, monkeypatch):
     monkeypatch.setitem(global_server_args_dict, "force_deterministic_rsag", False)
     backend._triton_ar.can_reduce_outputs.return_value = True

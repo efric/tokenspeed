@@ -1,0 +1,43 @@
+{
+  "timestamp_utc": "2026-08-14T02:16:55.269136313Z",
+  "phase": "phase0-topk-route-shared-down-last-good",
+  "implemented_regions": [
+    "touched-128KiB-dynamic-LDS",
+    "XCC/P240/barrier/fail-stop/topology",
+    "phase0-projections",
+    "FP32-sigmoid-bias-top16",
+    "local-route-compaction",
+    "route-XCD-plan-and-cumulative-targets",
+    "14xN512-shared-down-production-and-16-producer-publication"
+  ],
+  "triton_cache_key": "TM2DWYLIVOAKCP2IBEDEEHNRDEY6CELBRBWOMO2LY4Z2AYDVX7KQ",
+  "triton_cache_directory": "/home/ericfeng/distributed/.triton-cache/TM2DWYLIVOAKCP2IBEDEEHNRDEY6CELBRBWOMO2LY4Z2AYDVX7KQ",
+  "compiled_source_sha256": "e53d99aedaeb81ea27063a52ced19a40c4e2c2fedd2c36ac5d74ec473a929d8e",
+  "python_source_sha256": null,
+  "python_source_sha_note": "not captured before the next incremental edit",
+  "code_object_sha256": "9c5db36a7a19ea1ca816c8e52e90581157dea3d8b23dfd079cdf8ae2e5bda3e5",
+  "resources": {
+    "programs": 240,
+    "subgroups": 8,
+    "threads": 512,
+    "shared": 131072,
+    "launch_cooperative_grid": true,
+    "waves_per_eu": 2,
+    "occupancy": 1,
+    "vgpr_count": 142,
+    "sgpr_count": 106,
+    "vgpr_spill_count": 0,
+    "sgpr_spill_count": 57,
+    "private_segment_fixed_size": 0,
+    "uses_flat_scratch": 0,
+    "scratch_instructions": false
+  },
+  "command": "LD_PRELOAD=/opt/rocm/lib/libhsa-runtime64.so.1 TOKENSPEED_TEST_MEGAMOE_COMPILE=1 PYTHONPATH=tokenspeed-kernel-amd/python:tokenspeed-kernel/python pytest -q tokenspeed-kernel/test/ops/moe/megamoe/test_amd_compile.py -x",
+  "result": "PASS (1 passed)",
+  "stack": {
+    "torch": "2.13.0+rocm7.2",
+    "torch_hip": "7.2.53211",
+    "system_rocr_sha256": "b8cdfe93d343649a35c1daf73a0a3a6840f09379ebeee9be65670461ffea43f4"
+  },
+  "review_note": "The SGPR spills are scalar-to-VGPR lane save/restore in the retained AMDGCN, not private-memory spills; the checkpoint has private_segment_fixed_size=0 and no scratch opcodes. They remain a pressure/performance risk and are not hidden by the aggregate n_spills field."
+}

@@ -175,6 +175,318 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+def _get_kimi_k3_megamoe_api():
+    """Import the experimental kernel API only for an enabled K3 process."""
+
+    from tokenspeed_kernel import (
+        kimi_k3_megamoe_available,
+        kimi_k3_megamoe_decode,
+        prepare_kimi_k3_megamoe,
+    )
+
+    return (
+        kimi_k3_megamoe_available,
+        prepare_kimi_k3_megamoe,
+        kimi_k3_megamoe_decode,
+    )
+
+
+def _acquire_kimi_k3_megamoe_lane(
+    like: torch.Tensor,
+    group,
+    *,
+    local_status: int = 0,
+    local_reason: str = "",
+):
+    """Acquire the one model-lifetime Iris producer-direct communication lane."""
+
+    from tokenspeed.runtime.distributed.comm_ops import acquire_producer_direct_lane
+
+    return acquire_producer_direct_lane(
+        ((1, 7168), (1, 3584)),
+        like,
+        group,
+        local_status=local_status,
+        local_reason=local_reason,
+    )
+
+
+def _kimi_k3_megamoe_consensus(group):
+    """Bind the runtime control group for post-lane preparation stages."""
+
+    from tokenspeed.runtime.distributed.comm_ops import (
+        consensus_producer_direct_lane_status,
+    )
+
+    def consensus(stage: str, local_status: int, local_reason: str) -> None:
+        consensus_producer_direct_lane_status(
+            stage,
+            local_status,
+            local_reason,
+            group=group,
+        )
+
+    return consensus
+
+
+_KIMI_K3_MEGAMOE_BF16_SHAPES = {
+    "router_weight": (896, 7168),
+    "routed_down_weight": (3584, 7168),
+    "shared_gate_up_weight": (1536, 7168),
+    "shared_down_weight": (7168, 768),
+    "routed_norm_weight": (3584,),
+    "routed_up_weight": (7168, 3584),
+}
+_KIMI_K3_MEGAMOE_EXPERT_ABI = {
+    "w13_weight": ((112, 6144, 1792), (11010048, 1792, 1)),
+    "w13_weight_scale": ((112, 6144, 112), (688128, 112, 1)),
+    "w2_weight": ((112, 3584, 1536), (5505024, 1536, 1)),
+    "w2_weight_scale": ((112, 3584, 96), (344064, 96, 1)),
+}
+
+
+def _require_kimi_k3_megamoe(condition: bool, message: str) -> None:
+    if not condition:
+        raise ValueError(f"Kimi-K3 MegaMoE {message}")
+
+
+def _validate_kimi_k3_megamoe_tensor(
+    name: str,
+    tensor: torch.Tensor,
+    *,
+    shape: tuple[int, ...],
+    dtype: torch.dtype,
+    device: torch.device,
+    strides: tuple[int, ...] | None = None,
+) -> None:
+    _require_kimi_k3_megamoe(
+        isinstance(tensor, torch.Tensor), f"{name} is not a tensor"
+    )
+    _require_kimi_k3_megamoe(
+        tuple(tensor.shape) == shape,
+        f"{name} must have shape {shape}, got {tuple(tensor.shape)}",
+    )
+    _require_kimi_k3_megamoe(
+        tensor.dtype == dtype,
+        f"{name} must have dtype {dtype}, got {tensor.dtype}",
+    )
+    _require_kimi_k3_megamoe(
+        tensor.is_cuda and tensor.device == device,
+        f"{name} must be on CUDA device {device}, got {tensor.device}",
+    )
+    expected_strides = strides
+    if expected_strides is None:
+        _require_kimi_k3_megamoe(
+            tensor.is_contiguous(),
+            f"{name} must be contiguous",
+        )
+    else:
+        _require_kimi_k3_megamoe(
+            tuple(tensor.stride()) == expected_strides,
+            f"{name} must have strides {expected_strides}, got {tuple(tensor.stride())}",
+        )
+
+
+def _kimi_k3_megamoe_layer_spec(moe: "KimiLinearMoE") -> dict:
+    """Build and locally validate one processed-weight ABI record."""
+
+    experts = moe.experts
+    _require_kimi_k3_megamoe(
+        moe.execution_plan.use_native and moe.execution_plan.joint_moe_reduce,
+        "requires the native joint-reduce execution plan",
+    )
+    _require_kimi_k3_megamoe(
+        moe.native_latent_moe is not None,
+        "requires the native latent MoE composition",
+    )
+    _require_kimi_k3_megamoe(
+        getattr(experts, "_weights_processed", False),
+        "expert weights were not processed before post_quant_warmup",
+    )
+    _require_kimi_k3_megamoe(
+        getattr(experts, "_quant_kind", None) == "mxfp4",
+        "requires MXFP4 routed experts",
+    )
+    _require_kimi_k3_megamoe(
+        experts.plan.get("apply_kernel_name")
+        == "gluon_mxfp4_a16w4_situ_ep_precomputed_moe_apply",
+        "requires the gfx950 linear A16W4 SiTU expert plan",
+    )
+    _require_kimi_k3_megamoe(
+        experts.plan.get("internal_activation_dtype") == "input",
+        "requires BF16 routed-expert activations",
+    )
+    _require_kimi_k3_megamoe(
+        experts.w13_input_layout == "concatenated",
+        "requires concatenated W13 rows",
+    )
+    _require_kimi_k3_megamoe(
+        experts.num_experts == 896
+        and experts.num_local_experts == 112
+        and experts.top_k == 16
+        and experts.ep_size == 8
+        and experts.tp_size == 1,
+        "requires 896 experts, contiguous EP8 shards, and top-16 routing",
+    )
+
+    spec = {
+        "router_weight": moe.gate.weight,
+        "routed_down_weight": moe.routed_expert_down_proj.weight,
+        "shared_gate_up_weight": moe.shared_experts.gate_up_proj.weight,
+        "shared_down_weight": moe.shared_experts.down_proj.weight,
+        "routed_norm_weight": (
+            moe.routed_expert_norm.weight
+            if moe.routed_expert_norm is not None
+            else None
+        ),
+        "routed_up_weight": moe.routed_expert_up_proj.weight,
+        "correction_bias": moe.gate.e_score_correction_bias,
+        "w13_weight": experts.w13_weight,
+        "w13_weight_scale": experts.w13_weight_scale,
+        "w2_weight": experts.w2_weight,
+        "w2_weight_scale": experts.w2_weight_scale,
+        "expert_start": experts.ep_rank * experts.num_local_experts,
+        "beta": float(experts.activation_situ_beta),
+        "linear_beta": float(experts.activation_situ_linear_beta),
+        "rms_eps": (
+            float(moe.routed_expert_norm.variance_epsilon)
+            if moe.routed_expert_norm is not None
+            else float("nan")
+        ),
+        "w13_interleaved": experts.w13_input_layout == "interleaved",
+    }
+    device = spec["router_weight"].device
+    for name, shape in _KIMI_K3_MEGAMOE_BF16_SHAPES.items():
+        _validate_kimi_k3_megamoe_tensor(
+            name,
+            spec[name],
+            shape=shape,
+            dtype=torch.bfloat16,
+            device=device,
+        )
+    _validate_kimi_k3_megamoe_tensor(
+        "correction_bias",
+        spec["correction_bias"],
+        shape=(896,),
+        dtype=torch.float32,
+        device=device,
+    )
+    for name, (shape, strides) in _KIMI_K3_MEGAMOE_EXPERT_ABI.items():
+        _validate_kimi_k3_megamoe_tensor(
+            name,
+            spec[name],
+            shape=shape,
+            dtype=torch.uint8,
+            device=device,
+            strides=strides,
+        )
+    _require_kimi_k3_megamoe(
+        spec["expert_start"] in range(0, 896, 112),
+        f"invalid contiguous expert start {spec['expert_start']}",
+    )
+    _require_kimi_k3_megamoe(
+        spec["beta"] == 4.0 and spec["linear_beta"] == 25.0,
+        "requires SiTU beta=4 and linear beta=25",
+    )
+    _require_kimi_k3_megamoe(
+        spec["rms_eps"] == 1.0e-5,
+        "requires routed RMS epsilon 1e-5",
+    )
+    return spec
+
+
+def _kimi_k3_megamoe_local_specs(
+    model: "KimiK3ForConditionalGeneration",
+) -> tuple[tuple[dict, ...], torch.Tensor]:
+    """Validate every noncollective admission predicate and return layer specs."""
+
+    _require_kimi_k3_megamoe(
+        model.language_model is not None,
+        "does not support encoder-only construction",
+    )
+    language_model = model.language_model
+    config = language_model.config
+    mapping = model.mapping
+    _require_kimi_k3_megamoe(
+        str(global_server_args_dict.get("load_format", "")).lower() == "auto",
+        "requires normalized load_format=auto",
+    )
+    _require_kimi_k3_megamoe(
+        global_server_args_dict.get("all2all_backend") == "none",
+        "requires all2all_backend=none",
+    )
+    _require_kimi_k3_megamoe(
+        not global_server_args_dict.get("force_deterministic_rsag", False),
+        "does not support deterministic RSAG",
+    )
+    _require_kimi_k3_megamoe(
+        not global_server_args_dict.get("enable_eplb", False)
+        and global_server_args_dict.get("ep_num_redundant_experts", 0) == 0
+        and global_server_args_dict.get("init_expert_location", "trivial") == "trivial",
+        "requires trivial expert placement without EPLB or redundant experts",
+    )
+    _require_kimi_k3_megamoe(
+        global_server_args_dict.get("speculative_algorithm") in (None, ""),
+        "does not support speculative decoding",
+    )
+    _require_kimi_k3_megamoe(
+        mapping.world_size == mapping.nprocs_per_node == 8 and mapping.nnodes == 1,
+        "requires one node with exactly eight ranks",
+    )
+    _require_kimi_k3_megamoe(
+        mapping.attn.tp_size == 8
+        and mapping.attn.cp_size == 1
+        and mapping.attn.dp_size == 1
+        and mapping.moe.tp_size == 1
+        and mapping.moe.ep_size == 8
+        and mapping.moe.dp_size == 1,
+        "requires attention TP8/DP1/CP1 and MoE TP1/EP8/DP1",
+    )
+    _require_kimi_k3_megamoe(
+        mapping.moe.ep_group == mapping.moe.tp_ep_group == mapping.world_group,
+        "requires identical ordered local EP, TP-EP, and world groups",
+    )
+    _require_kimi_k3_megamoe(
+        config.num_hidden_layers == 93
+        and config.hidden_size == 7168
+        and config.routed_expert_hidden_size == 3584
+        and config.num_experts == 896
+        and config.num_experts_per_token == 16
+        and config.moe_intermediate_size == 3072
+        and config.num_shared_experts == 2
+        and config.first_k_dense_replace == 1
+        and config.moe_layer_freq == 1,
+        "requires the exact production Kimi-K3 layer and MoE dimensions",
+    )
+    _require_kimi_k3_megamoe(
+        config.hidden_act == "situ"
+        and config.activation_situ_beta == 4.0
+        and config.activation_situ_linear_beta == 25.0
+        and config.rms_norm_eps == 1.0e-5
+        and config.latent_moe_use_norm
+        and config.moe_renormalize
+        and config.moe_router_activation_func == "sigmoid"
+        and config.topk_method == "noaux_tc"
+        and config.use_grouped_topk
+        and config.num_expert_group == 1
+        and config.topk_group == 1
+        and config.routed_scaling_factor == 1.0,
+        "requires the exact sigmoid/noaux top-16 SiTU numerical contract",
+    )
+
+    moe_layers = tuple(
+        layer.block_sparse_moe
+        for layer in language_model.model.layers
+        if getattr(layer, "is_moe_layer", False)
+    )
+    _require_kimi_k3_megamoe(
+        len(moe_layers) == 92,
+        f"requires exactly 92 MoE layers, got {len(moe_layers)}",
+    )
+    specs = tuple(_kimi_k3_megamoe_layer_spec(moe) for moe in moe_layers)
+    return specs, specs[0]["router_weight"]
+
+
 # ===----------------------------------------------------------------------=== #
 # Multimodal vision path
 # ===----------------------------------------------------------------------=== #
@@ -1070,6 +1382,10 @@ class KimiLinearMoE(nn.Module):
         super().__init__()
         self.config = config
         self.mapping = mapping
+        self._kimi_k3_megamoe_enabled = bool(
+            global_server_args_dict.get("enable_kimi_k3_megamoe", False)
+        )
+        self._kimi_k3_megamoe_plan = None
         # Router (gate+topk) and shared experts run on this stream during
         # graph capture, overlapped with the main-stream routed chain
         # (down_proj -> fused SiTU MoE -> up_proj). Collectives stay on the default
@@ -1568,6 +1884,23 @@ class KimiLinearMoE(nn.Module):
                 self._gather_dp_tokens(hidden_states, prefix_sum, ctx)
             )
             max_num_tokens_per_gpu = num_global_tokens
+
+        if (
+            self._kimi_k3_megamoe_enabled
+            and ctx is not None
+            and ctx.forward_mode.is_decode_or_idle()
+            and hidden_states.shape[0] == 1
+        ):
+            if self._kimi_k3_megamoe_plan is None:
+                raise RuntimeError(
+                    "Kimi-K3 MegaMoE decode was admitted without a prepared layer plan"
+                )
+            _, _, megamoe_decode = _get_kimi_k3_megamoe_api()
+            return megamoe_decode(
+                hidden_states,
+                prefix_sum,
+                self._kimi_k3_megamoe_plan,
+            )
 
         if self.native_latent_moe is not None:
             if self._use_fused_decode_pipeline and hidden_states.shape[0] == 1:
@@ -2982,6 +3315,12 @@ class KimiK3ForConditionalGeneration(nn.Module):
         **kwargs,
     ) -> None:
         super().__init__()
+        self._kimi_k3_megamoe_enabled = bool(
+            global_server_args_dict.get("enable_kimi_k3_megamoe", False)
+        )
+        self._kimi_k3_megamoe_prepared = False
+        self._kimi_k3_megamoe_layer_plans: tuple = ()
+        self._kimi_k3_megamoe_lane_owner = None
         self.config = config
         self.mapping = mapping
         self.quant_config = quant_config
@@ -3153,6 +3492,93 @@ class KimiK3ForConditionalGeneration(nn.Module):
         if self.language_model is not None:
             self.language_model.post_load_weights()
 
+    def post_quant_warmup(self) -> None:
+        """Prepare all immutable MegaMoE plans after quantization processing."""
+
+        if not self._kimi_k3_megamoe_enabled:
+            return
+        if self._kimi_k3_megamoe_prepared:
+            return
+
+        # The control-group consensus in lane acquisition must be reached by
+        # every EP rank even when this rank's local model/layout admission
+        # fails.  Do not raise out of this validation region.
+        local_status = 0
+        local_reason = ""
+        specs: tuple[dict, ...] = ()
+        prepare_megamoe = None
+        try:
+            like = (
+                self.language_model.model.embed_tokens.weight
+                if self.language_model is not None
+                else next(self.parameters())
+            )
+        except (AttributeError, StopIteration):
+            # The value is never consumed by Iris when local_status is nonzero;
+            # it only lets an invalid encoder-only/mock construction reach the
+            # rank-uniform admission consensus instead of raising early.
+            like = torch.empty(1, dtype=torch.bfloat16)
+        try:
+            available, prepare_megamoe, _ = _get_kimi_k3_megamoe_api()
+            _require_kimi_k3_megamoe(
+                available(),
+                "requires the available gfx950 Gluon implementation",
+            )
+            specs, like = _kimi_k3_megamoe_local_specs(self)
+        except Exception as error:  # noqa: BLE001 - exchanged with every rank
+            local_status = 1
+            local_reason = f"{type(error).__name__}: {error}"[:512]
+
+        lane = _acquire_kimi_k3_megamoe_lane(
+            like,
+            self.mapping.moe.ep_group,
+            local_status=local_status,
+            local_reason=local_reason,
+        )
+        # A failed local status is expected to make the consensus helper raise
+        # the same aggregate error on every rank before any Iris allocation.
+        if local_status:
+            raise RuntimeError(
+                "Kimi-K3 MegaMoE admission consensus returned unexpectedly "
+                f"after local failure: {local_reason}"
+            )
+        if lane is None:
+            raise RuntimeError(
+                "Kimi-K3 MegaMoE requires an Iris producer-direct lane; "
+                "the communication backend returned no lane"
+            )
+        assert prepare_megamoe is not None
+        plans = tuple(
+            prepare_megamoe(
+                specs,
+                lane,
+                like=like,
+                consensus=_kimi_k3_megamoe_consensus(self.mapping.moe.ep_group),
+            )
+        )
+        if len(plans) != 92 or any(plan is None for plan in plans):
+            raise RuntimeError(
+                "Kimi-K3 MegaMoE preparation must return exactly 92 layer plans"
+            )
+        if any(getattr(plan, "lane", None) is not lane for plan in plans):
+            raise RuntimeError(
+                "Kimi-K3 MegaMoE plans must retain the acquired lane owner"
+            )
+
+        # Publish only after the full model-level factory succeeds.  Until this
+        # point every layer remains on its initialized missing-plan state.
+        moe_layers = tuple(
+            layer.block_sparse_moe
+            for layer in self.language_model.model.layers
+            if getattr(layer, "is_moe_layer", False)
+        )
+        for moe, plan in zip(moe_layers, plans):
+            moe._kimi_k3_megamoe_plan = plan
+            moe._kimi_k3_megamoe_enabled = True
+        self._kimi_k3_megamoe_layer_plans = plans
+        self._kimi_k3_megamoe_lane_owner = lane
+        self._kimi_k3_megamoe_prepared = True
+
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
         """Route checkpoint weights by top-level prefix.
 
@@ -3164,6 +3590,12 @@ class KimiK3ForConditionalGeneration(nn.Module):
         every yielded tensor in a temporary list. Vision tensors are loaded as
         the language loader advances the source iterator.
         """
+        if getattr(self, "_kimi_k3_megamoe_prepared", False):
+            raise RuntimeError(
+                "Kimi-K3 MegaMoE plans retain processed-weight addresses; "
+                "online weight replacement requires plan teardown and graph "
+                "recapture"
+            )
         loaded_vision_weights = 0
         dropped_vision_weights = 0
         vision_params = (

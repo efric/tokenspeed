@@ -1,0 +1,193 @@
+{
+  "timestamp_utc": "2026-08-14T06:47:46Z",
+  "artifact_status": "HISTORICAL_SUPERSEDED",
+  "superseded_by": {
+    "kernel_sha256": "d5dad109b81c94cef5ff18fa550269ea10d98f06002173fd99df626c40fa48ab",
+    "paired_benchmark": "profile_default/kimi-k3-megamoe-final-d5dad-20260814T120409Z/comparison.json",
+    "final_disposition": "CORRECTNESS_QUALIFIED_PER_TILE_COMPLETION_PERFORMANCE_REJECTED_MARKER_FALSE"
+  },
+  "phase": "protocol-v3-full-body-all-rank-loaded-code",
+  "qualification_status": "HISTORICAL_LOADED_CODE_ONLY_SUPERSEDED",
+  "implementation_completion_marker": false,
+  "source": {
+    "kernel": "tokenspeed-kernel-amd/python/tokenspeed_kernel_amd/ops/gfx950/moe/megamoe/kernel.py",
+    "kernel_sha256": "3a239b705a541b8718738be00c8a7169a4437ffd3221ab6dfbed96a63d8b8622",
+    "admission_sha256": "bd3e6dcd13191d5b73beebb7d70a27e614ef06059dc535ba85381d8a7fb0f21b",
+    "loaded_code_test_sha256": "fa9e70bb815472b8fc5de04f1c69af88071397ad8ac029d3d7de35df82bceda3",
+    "publication_litmus_sha256": "cec0f249815fb235b71aafef5da23b3c2a5b99f5583056381ed1c48d0b76fc1c"
+  },
+  "implemented_regions": [
+    "phase0-router-routed-shared-projections",
+    "bitwise-current-K3-sigmoid-bias-top16",
+    "static-route-plan-and-XCD-capacity-consensus",
+    "shared-down",
+    "linear-MXFP4-W13-and-BF16-SiTU-boundary",
+    "linear-MXFP4-W2-and-BF16-route-boundary",
+    "deterministic-routed-combine",
+    "protocol-v3-21-tile-Iris-producer-direct-reduction",
+    "final-RMSNorm-routed-up-prefix-shared-add",
+    "sticky-fatal-entry-and-bounded-one-shot-fail-stop",
+    "retained-loaded-direct-launcher"
+  ],
+  "common_resources": {
+    "resource_scope": "historical 3a239b kernel only; not current d5dad admission",
+    "programs": 240,
+    "subgroups": 8,
+    "threads": 512,
+    "dynamic_shared_bytes": 131072,
+    "launch_cooperative_grid": true,
+    "waves_per_eu": 2,
+    "occupancy": 1,
+    "n_regs": 169,
+    "triton_n_spills": 0,
+    "sgpr_count": 106,
+    "vgpr_count": 169,
+    "sgpr_to_vgpr_lane_save_count": 74,
+    "vgpr_spill_count": 0,
+    "private_segment_fixed_size": 0,
+    "uses_dynamic_stack": false,
+    "uses_flat_scratch": false,
+    "scratch_instructions": false
+  },
+  "loaded_isa_contract": {
+    "source_publication_sites": 11,
+    "emitted_publication_blocks": 41,
+    "publication_multiplicity": "nine sites once plus W13 and W2 sixteen times each",
+    "publication_sequence": "s_waitcnt vmcnt(0); buffer_wbl2 sc0 sc1; s_waitcnt vmcnt(0); first s_barrier",
+    "system_atomic_poll_graphs": 24,
+    "all_explicit_post_poll_vmem_ack_sites": 61,
+    "returned_normal_system_release_swaps": 3,
+    "fatal_system_release_swaps": 448,
+    "one_shot_diagnostic_cas": 56,
+    "ready_completion_plane_byte_delta": 1344,
+    "runtime_code_object_pin": "exact per-rank HSACO SHA-256"
+  },
+  "specializations": [
+    {
+      "group_rank": 0,
+      "expert_start": 0,
+      "cache_key": "MJSTQHO2QTY2WWYV6MGSYS6EIFKWKJIF35KHKWDL5FWXAOYEUHEQ",
+      "cache_directory": "/home/ericfeng/distributed/.triton-cache/MJSTQHO2QTY2WWYV6MGSYS6EIFKWKJIF35KHKWDL5FWXAOYEUHEQ",
+      "compiled_kernel_hash": "6265381dda84f1ab5b15f30d2c4bc44155652505df5475586be96d703b04a1c9",
+      "compiled_source_sha256": "659da74afc3df0650c1082374630adb0762a690d3831025c9efe65b2ab365ea7",
+      "amdgcn_file_sha256": "840582d9ad2cc2dc29535ea0c6d44a9b82da21cdb0b65741715b4059e961e75b",
+      "hsaco_sha256": "ebfb9b73039fb02398cd7f652425d38fb36e0a3227a55fb537f7f0ef8c865881",
+      "hsaco_size_bytes": 447328
+    },
+    {
+      "group_rank": 1,
+      "expert_start": 112,
+      "cache_key": "COPD3J45BQH3VYC5HL77F76W3HK3HX5EUQRWUB2UHQWA5GC2JA2Q",
+      "cache_directory": "/home/ericfeng/distributed/.triton-cache/COPD3J45BQH3VYC5HL77F76W3HK3HX5EUQRWUB2UHQWA5GC2JA2Q",
+      "compiled_kernel_hash": "139e3da79d0c0fbae05d3afff2ffd6d9d5b3dfa4a4236a07543c2c0e985a4835",
+      "compiled_source_sha256": "9e2f73bda58fb2da0666b9d53981b7230b511f56444b6cd726f3d31de975368b",
+      "amdgcn_file_sha256": "10b87c884dd2bea132452ef688f400dcb68a167da6587a0231c59f897346d676",
+      "hsaco_sha256": "71e3125b16215faa7fa087f77837b4d8a8951901a6c679d755471301d48949ad",
+      "hsaco_size_bytes": 446664
+    },
+    {
+      "group_rank": 2,
+      "expert_start": 224,
+      "cache_key": "U5SV74MADL7AD7LB3AEJBI56PULVM2J3O5MFR7B74BXWEVHGBTWQ",
+      "cache_directory": "/home/ericfeng/distributed/.triton-cache/U5SV74MADL7AD7LB3AEJBI56PULVM2J3O5MFR7B74BXWEVHGBTWQ",
+      "compiled_kernel_hash": "a7655ff1801afe01fd61d80890a3be7d1756693b775858fc3fe06f6254e60ced",
+      "compiled_source_sha256": "6cd89e29c41de4beeffbb16eec1519f7d695471df894d4072fe026a13f01140b",
+      "amdgcn_file_sha256": "3f5dbbbbbc70410645411ea0418699c2ffe88a7407a8b7342e147d7cc52fe8d1",
+      "hsaco_sha256": "998228aed773e94c1658193927a8a1e594738b4874e6f5fc84b07c2cac55bd43",
+      "hsaco_size_bytes": 448816
+    },
+    {
+      "group_rank": 3,
+      "expert_start": 336,
+      "cache_key": "B22CYI3YJGAHU4EZCPJOZFX6FNYKZT3MPM3BZV72NZGY2W2Q3OYA",
+      "cache_directory": "/home/ericfeng/distributed/.triton-cache/B22CYI3YJGAHU4EZCPJOZFX6FNYKZT3MPM3BZV72NZGY2W2Q3OYA",
+      "compiled_kernel_hash": "0eb42c237849807a709913d2ec96fe2b70accf6c7b361cd7fa6e4d8d5b50dbb0",
+      "compiled_source_sha256": "fa832f375ba15bc0918448d2713967f686f230a4570fe1a93e8e321eaa170f5c",
+      "amdgcn_file_sha256": "243fa66ed68e277ae9812dc4cce94429d8471822d136c402cd145d0e7493fb2e",
+      "hsaco_sha256": "5c696e678cf25144ee60861187f09d6bcc799e892ec4b6b37b964deea04ab2a6",
+      "hsaco_size_bytes": 448952
+    },
+    {
+      "group_rank": 4,
+      "expert_start": 448,
+      "cache_key": "UYNOZJQSBV6R5CULMDLAROLUQLV4HBSOO3EBKDTJAOXOMOJQQI2Q",
+      "cache_directory": "/home/ericfeng/distributed/.triton-cache/UYNOZJQSBV6R5CULMDLAROLUQLV4HBSOO3EBKDTJAOXOMOJQQI2Q",
+      "compiled_kernel_hash": "a61aeca6120d7d1e8a8b60d608b97482ebc3864e76c8150e6903aee639308235",
+      "compiled_source_sha256": "ca89908c5fc1f96142ba6a0825894cfc961b12f0a8b06ae5260db250a2382c8a",
+      "amdgcn_file_sha256": "27a158f39d312d38c494826284b27048ca8e9f37d365acc8fb3d1e0d61504a4e",
+      "hsaco_sha256": "6d8518005d69400a69e293f0a2f736e64bd01eb163b3c84b358f1be2df52de42",
+      "hsaco_size_bytes": 448808
+    },
+    {
+      "group_rank": 5,
+      "expert_start": 560,
+      "cache_key": "VNNDAEMQ3MSBO576XZYUI7UTMSVRETPPUF4U6RGZM5ND2LHXAYTA",
+      "cache_directory": "/home/ericfeng/distributed/.triton-cache/VNNDAEMQ3MSBO576XZYUI7UTMSVRETPPUF4U6RGZM5ND2LHXAYTA",
+      "compiled_kernel_hash": "ab5a301190db241777febe71447e9364ab124defa1794f44d9675a3d2cf70626",
+      "compiled_source_sha256": "e1fa5521cbcaf15ed0016fa23c60dcfaccbd6bec64fe791f671b008f5210dc3e",
+      "amdgcn_file_sha256": "41c67db44d2170b50d66b014a35123d81a9e349094dd51533d3ad2e0577fb78d",
+      "hsaco_sha256": "a0fc47e6011ba508d4795d1b9235bd8074db2ffa167c489ef998e16ea60aec68",
+      "hsaco_size_bytes": 448576
+    },
+    {
+      "group_rank": 6,
+      "expert_start": 672,
+      "cache_key": "DFU43DSCXCHQKSDQ6KIOYWPUZG562FNQGTXF3DLX6SAQNXXBAP7Q",
+      "cache_directory": "/home/ericfeng/distributed/.triton-cache/DFU43DSCXCHQKSDQ6KIOYWPUZG562FNQGTXF3DLX6SAQNXXBAP7Q",
+      "compiled_kernel_hash": "1969cd8e42b88f054870f290ec59f4c9bbed15b034ee5d8d77f48106dee103ff",
+      "compiled_source_sha256": "0aa9cf41707901af38317981513dc0417f6ba9508893b727aa64be25069f1d9d",
+      "amdgcn_file_sha256": "7888eea3cd6819c5807645223020d015610a05f92ca7beeb15d7f3c8454fa707",
+      "hsaco_sha256": "ff1fd382e84e6f413b1e398aa288add478e2f8290d27c1aba51bc723c215fcc8",
+      "hsaco_size_bytes": 448976
+    },
+    {
+      "group_rank": 7,
+      "expert_start": 784,
+      "cache_key": "SV7QF2OAKCKRJIKKMPJXV3KFNTLIHH4RM2H6NF4UF7AZPQSXDERA",
+      "cache_directory": "/home/ericfeng/distributed/.triton-cache/SV7QF2OAKCKRJIKKMPJXV3KFNTLIHH4RM2H6NF4UF7AZPQSXDERA",
+      "compiled_kernel_hash": "957f02e9c0509514a14a63d37aed456cd6839f91668fe697942fc197c2571922",
+      "compiled_source_sha256": "a764ad0093fef6b542700679ef7cec0822ae86d0c9d372cf09bfcfc59362ee64",
+      "amdgcn_file_sha256": "9f42e1df2a7efa42a4022939d9a61d67520ec7adde4d962ecc1e6c3b14f1c1c7",
+      "hsaco_sha256": "3832483058907bc561e67cb95ae85aea564c431ae6d90e280c233df284702b7f",
+      "hsaco_size_bytes": 449040
+    }
+  ],
+  "protocol_v3_publication_qualification": {
+    "flag_shape": [2, 21, 8],
+    "topology_status_shape": [2],
+    "payload_consumer": "subgroup zero owns all 128 packed UINT64 words at two words per lane",
+    "physical_world2_pair": [0, 4],
+    "world2_burst_generations": 4096,
+    "world8_burst_generations": 4096,
+    "world8_remote_word_checks": 29360128,
+    "world8_self_word_checks": 4194304,
+    "world8_generation_site_subgroup_control_checks": 3932160,
+    "per_generation_host_sync_or_gloo": false,
+    "rank_skew": "rank-dependent 1 ms delay every 64 launch rows",
+    "errors": 0,
+    "final_ready_generation": 4096,
+    "final_completion_generation": 4096,
+    "retained_runner_no_jit": true
+  },
+  "runtime_stack": {
+    "architecture": "gfx950",
+    "compute_units": 256,
+    "torch_version": "2.13.0+rocm7.2",
+    "torch_hip_version": "7.2.53211",
+    "system_rocr_realpath": "/opt/rocm-7.2.4/lib/libhsa-runtime64.so.1.18.70204",
+    "system_rocr_sha256": "b8cdfe93d343649a35c1daf73a0a3a6840f09379ebeee9be65670461ffea43f4",
+    "system_rocr_build_id": "cbe2c420f8c65e4710580d19cfd7950db722ea9f",
+    "cooperative_driver_abi_ok": true
+  },
+  "compile_command": "LD_PRELOAD=/opt/rocm/lib/libhsa-runtime64.so.1 TOKENSPEED_TEST_MEGAMOE_COMPILE=1 PYTHONPATH=tokenspeed-kernel-amd/python:tokenspeed-kernel/python:python pytest -q tokenspeed-kernel/test/ops/moe/megamoe/test_amd_compile.py -x",
+  "compile_result": "PASS (1 passed in 1.84s)",
+  "focused_command": "LD_PRELOAD=/opt/rocm/lib/libhsa-runtime64.so.1 TOKENSPEED_TEST_MEGAMOE_COMPILE=1 TOKENSPEED_TEST_MEGAMOE_NUMERICS=1 PYTHONPATH=tokenspeed-kernel-amd/python:tokenspeed-kernel/python:python pytest -q tokenspeed-kernel/test/ops/moe/megamoe",
+  "focused_result": "PASS (52 passed, 5 opt-in hardware tests skipped in 4.20s)",
+  "dispatch_status": "HISTORICAL_PENDING_STATUS_SUPERSEDED_BEFORE_FINAL_D5DAD_QUALIFICATION",
+  "notes": [
+    "This artifact is retained for provenance only. Its hashes, resources, ISA counts, and pending-EP8 status must not be used as current admission evidence.",
+    "All hashes were regenerated after the final Ruff formatting pass; earlier rank hashes are obsolete.",
+    "The publication litmus uses fresh retained dispatches and a burst mode with no per-generation host synchronization.",
+    "The exact code-object pins are an experimental pinned-stack admission contract, not a portable HIP guarantee."
+  ]
+}

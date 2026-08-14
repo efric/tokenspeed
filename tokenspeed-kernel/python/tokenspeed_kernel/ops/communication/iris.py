@@ -22,6 +22,7 @@ import importlib
 import logging
 import math
 import pkgutil
+from dataclasses import dataclass
 from typing import List, Tuple
 
 import torch
@@ -64,16 +65,21 @@ _platform = current_platform()
 
 __all__ = [
     "IrisAllReduce",
+    "IrisProducerDirectLane",
     "IrisRSAG",
     "IrisAllReduceResidualRMSNorm",
     "create_iris_state",
     "iris_all_reduce",
     "iris_acquire_outputs",
+    "iris_acquire_producer_direct_lane",
+    "iris_producer_direct_lane_fatal_epoch",
     "iris_all_reduce_symmetric",
     "iris_all_reduce_residual_attnres",
     "create_iris_rsag_state",
     "create_iris_ar_rmsnorm_state",
     "iris_allreduce_residual_rmsnorm",
+    "unpack_iris_producer_direct_lane",
+    "IRIS_PRODUCER_DIRECT_PROTOCOL_VERSION",
     "IRIS_AR_STATES",
     "IRIS_AR_RMSNORM_STATES",
 ]
@@ -81,11 +87,130 @@ __all__ = [
 
 IRIS_AR_STATES: dict = {}
 IRIS_AR_RMSNORM_STATES: dict = {}
+IRIS_PRODUCER_DIRECT_PROTOCOL_VERSION = 3
 _PRODUCER_DIRECT_GL_DTYPES = {
     torch.bfloat16: gl.bfloat16,
     torch.float16: gl.float16,
     torch.float32: gl.float32,
 }
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class IrisProducerDirectLane:
+    """Graph-stable Iris storage borrowed by a producer-direct kernel.
+
+    The runtime treats this object as opaque. TokenSpeed-kernel consumers must
+    call :func:`unpack_iris_producer_direct_lane` before retaining its tensor
+    fields. The strong ``_owner`` reference keeps the Iris context and all
+    symmetric allocations alive for captured graphs.
+    """
+
+    symmetric_producer: torch.Tensor
+    symmetric_reduced: torch.Tensor
+    iris_epoch_flags: torch.Tensor
+    topology_status: torch.Tensor
+    fatal_epoch: torch.Tensor
+    heap_bases: torch.Tensor
+    group_global_ranks: torch.Tensor
+    group_rank: int
+    world_size: int
+    flag_dtype: torch.dtype
+    protocol_version: int
+    block_size: int
+    num_programs: int
+    num_tiles: int
+    shapes: tuple[tuple[int, ...], ...]
+    _owner: "IrisAllReduce"
+    _group_global_rank_tuple: tuple[int, ...]
+    _graph_tensor_ids: tuple[int, ...]
+    _graph_data_ptrs: tuple[int, ...]
+
+    def validate(self) -> None:
+        """Reject stale, replaced, or structurally incompatible lane state."""
+
+        owner = self._owner
+        graph_tensors = (
+            self.symmetric_producer,
+            self.symmetric_reduced,
+            self.iris_epoch_flags,
+            self.topology_status,
+            self.fatal_epoch,
+            self.heap_bases,
+            self.group_global_ranks,
+        )
+        if tuple(id(tensor) for tensor in graph_tensors) != self._graph_tensor_ids:
+            raise RuntimeError("Iris producer-direct lane tensor identity changed")
+        if (
+            tuple(tensor.data_ptr() for tensor in graph_tensors)
+            != self._graph_data_ptrs
+        ):
+            raise RuntimeError("Iris producer-direct lane tensor storage changed")
+
+        live_heap_bases = owner._ctx.get_heap_bases()
+        if live_heap_bases is not self.heap_bases:
+            raise RuntimeError("Iris authoritative heap-base tensor was replaced")
+        if owner._heap_bases is not self.heap_bases:
+            raise RuntimeError("Iris state no longer owns the live heap-base tensor")
+        if live_heap_bases.data_ptr() != self._graph_data_ptrs[5]:
+            raise RuntimeError("Iris authoritative heap-base storage was replaced")
+        if owner._group_global_ranks is not self.group_global_ranks:
+            raise RuntimeError("Iris group-rank tensor was replaced")
+        if owner._group_global_rank_tuple != self._group_global_rank_tuple:
+            raise RuntimeError("Iris process-group rank ordering changed")
+        if owner._producer_direct_lane_ready_flags is not self.iris_epoch_flags:
+            raise RuntimeError("Iris producer-direct epoch flags were replaced")
+        if owner._producer_direct_topology_status is not self.topology_status:
+            raise RuntimeError("Iris producer-direct topology status was replaced")
+        if owner._producer_direct_fatal_epoch is not self.fatal_epoch:
+            raise RuntimeError("Iris producer-direct fatal epoch was replaced")
+        if (
+            owner._producer_direct_lane_input_buf.data_ptr()
+            != self.symmetric_producer.data_ptr()
+        ):
+            raise RuntimeError("Iris producer-direct storage was replaced")
+        if (
+            owner._producer_direct_output_buf.data_ptr()
+            != self.symmetric_reduced.data_ptr()
+        ):
+            raise RuntimeError("Iris reduced-output storage was replaced")
+
+        total_numel = sum(math.prod(shape) for shape in self.shapes)
+        if (
+            self.protocol_version != IRIS_PRODUCER_DIRECT_PROTOCOL_VERSION
+            or self.flag_dtype != torch.int64
+            or self.iris_epoch_flags.dtype != torch.int64
+            or self.iris_epoch_flags.shape
+            != (2, self.num_programs, self.world_size)
+            or self.topology_status.dtype != torch.int64
+            or self.topology_status.shape != (2,)
+            or self.fatal_epoch.dtype != torch.int64
+            or self.fatal_epoch.numel() != 1
+            or self.heap_bases.dtype != torch.int64
+            or self.heap_bases.ndim != 1
+            or self.group_global_ranks.dtype != torch.int64
+            or self.group_global_ranks.shape != (self.world_size,)
+            or not 0 <= self.group_rank < self.world_size
+            or len(self._group_global_rank_tuple) != self.world_size
+            or max(self._group_global_rank_tuple) >= self.heap_bases.numel()
+            or min(self._group_global_rank_tuple) < 0
+            or self.symmetric_producer.numel() != total_numel
+            or self.symmetric_reduced.numel() != total_numel
+            or not self.symmetric_producer.is_contiguous()
+            or not self.symmetric_reduced.is_contiguous()
+        ):
+            raise RuntimeError("invalid Iris producer-direct lane ABI")
+
+
+def unpack_iris_producer_direct_lane(lane: object) -> IrisProducerDirectLane:
+    """Validate and return the concrete TokenSpeed-kernel Iris lane."""
+
+    if not isinstance(lane, IrisProducerDirectLane):
+        raise TypeError(
+            "expected a TokenSpeed-kernel IrisProducerDirectLane, "
+            f"got {type(lane).__name__}"
+        )
+    lane.validate()
+    return lane
 
 
 def _get_available_gpu_memory(gpu_id: int, empty_cache: bool = True) -> float:
@@ -109,7 +234,6 @@ def _get_or_create_iris_context(heap_size: int):
 
 
 class IrisRSAG(object):
-
     def __init__(
         self,
         group: dist.ProcessGroup,
@@ -119,19 +243,19 @@ class IrisRSAG(object):
         device: torch.device = None,
         heap_size: int | None = None,
     ) -> None:
-        assert (
-            type(group) == dist.ProcessGroup
-        ), f"Expected dist.ProcessGroup, got {type(group)}"
+        assert type(group) == dist.ProcessGroup, (
+            f"Expected dist.ProcessGroup, got {type(group)}"
+        )
         assert dist.is_initialized(), (
             "torch.distributed must be initialized before constructing "
             "IrisRSAG; call dist.init_process_group() first."
         )
         assert _platform.is_amd, (
-            "IrisRSAG currently targets AMD ROCm; " f"got non-AMD platform: {_platform}"
+            f"IrisRSAG currently targets AMD ROCm; got non-AMD platform: {_platform}"
         )
-        assert (
-            group == dist.group.WORLD or group.size() == dist.get_world_size()
-        ), "iris.ccl all_gather/reduce_scatter do not accept a sub-group."
+        assert group == dist.group.WORLD or group.size() == dist.get_world_size(), (
+            "iris.ccl all_gather/reduce_scatter do not accept a sub-group."
+        )
 
         self.group = group
         self.rank_in_group = rank_in_group
@@ -179,9 +303,9 @@ class IrisRSAG(object):
 
     def get_context(self, token_list_in_group: list) -> Tuple[int, int, int]:
         total_num_tokens = sum(token_list_in_group)
-        assert (
-            total_num_tokens <= self.max_tokens
-        ), f"The inner comm buffer is too small: {total_num_tokens=} is not <= {self.max_tokens=}"
+        assert total_num_tokens <= self.max_tokens, (
+            f"The inner comm buffer is too small: {total_num_tokens=} is not <= {self.max_tokens=}"
+        )
         local_num_tokens = token_list_in_group[self.rank_in_group]
         local_token_offset = sum(token_list_in_group[: self.rank_in_group])
         return total_num_tokens, local_num_tokens, local_token_offset
@@ -229,14 +353,14 @@ class IrisRSAG(object):
         token_list_in_group: List[int] = None,
         safe=True,
     ) -> torch.Tensor:
-        assert (
-            tp_num_tokens is not None or token_list_in_group is not None
-        ), "Either tp_num_tokens or token_list_in_group must be provided"
+        assert tp_num_tokens is not None or token_list_in_group is not None, (
+            "Either tp_num_tokens or token_list_in_group must be provided"
+        )
         if token_list_in_group is None:
             token_list_in_group = self.get_token_dist(tp_num_tokens)
-        assert (
-            hidden_states.dtype == self.dtype
-        ), f"Only {self.dtype} is supported, got {hidden_states.dtype}"
+        assert hidden_states.dtype == self.dtype, (
+            f"Only {self.dtype} is supported, got {hidden_states.dtype}"
+        )
 
         local_num_tokens = self._assert_uniform(token_list_in_group)
         total_num_tokens, _, local_token_offset = self.get_context(token_list_in_group)
@@ -275,14 +399,14 @@ class IrisRSAG(object):
         token_list_in_group: List[int] = None,
         safe=True,
     ) -> torch.Tensor:
-        assert (
-            tp_num_tokens is not None or token_list_in_group is not None
-        ), "Either tp_num_tokens or token_list_in_group must be provided"
+        assert tp_num_tokens is not None or token_list_in_group is not None, (
+            "Either tp_num_tokens or token_list_in_group must be provided"
+        )
         if token_list_in_group is None:
             token_list_in_group = self.get_token_dist(tp_num_tokens)
-        assert (
-            hidden_states.dtype == self.dtype
-        ), f"Only {self.dtype} is supported, got {hidden_states.dtype}"
+        assert hidden_states.dtype == self.dtype, (
+            f"Only {self.dtype} is supported, got {hidden_states.dtype}"
+        )
 
         local_num_tokens = self._assert_uniform(token_list_in_group)
         total_num_tokens, _, _ = self.get_context(token_list_in_group)
@@ -324,9 +448,9 @@ class IrisAllReduce(object):
         device: torch.device = None,
         config=None,
     ) -> None:
-        assert (
-            type(group) == dist.ProcessGroup
-        ), f"Expected dist.ProcessGroup, got {type(group)}"
+        assert type(group) == dist.ProcessGroup, (
+            f"Expected dist.ProcessGroup, got {type(group)}"
+        )
         assert dist.is_initialized(), (
             "torch.distributed must be initialized before constructing "
             "IrisAllReduce; call dist.init_process_group() first."
@@ -360,9 +484,9 @@ class IrisAllReduce(object):
         free_gpu_memory_begin = _get_available_gpu_memory(torch.cuda.current_device())
         self._ctx = _get_or_create_iris_context(heap_size)
         self.world_size = group.size()
-        group_ranks = dist.get_process_group_ranks(group)
-        assert len(group_ranks) == self.world_size
-        assert group_ranks[rank_in_group] == dist.get_rank()
+        self._group_global_rank_tuple = tuple(dist.get_process_group_ranks(group))
+        assert len(self._group_global_rank_tuple) == self.world_size
+        assert self._group_global_rank_tuple[rank_in_group] == dist.get_rank()
         self._input_buf = self._ctx.zeros((max_numel,), dtype=dtype)
         self._producer_direct_output_buf = torch.empty(
             max_numel, dtype=dtype, device=self.device
@@ -375,16 +499,45 @@ class IrisAllReduce(object):
         self._producer_direct_block_size = 512
         # Keep the tuned M=1 grid resident; larger inputs iterate over tiles.
         self._producer_direct_max_programs = 21
+        self._producer_direct_lane_capacity = (
+            self._producer_direct_block_size * self._producer_direct_max_programs
+        )
+        # MegaMoE borrows this dedicated symmetric allocation. Ordinary and
+        # fused Iris collectives continue to stage through ``_input_buf``, so
+        # rank skew between those paths cannot overwrite an in-flight MegaMoE
+        # producer payload.
+        self._producer_direct_lane_input_buf = self._ctx.zeros(
+            (self._producer_direct_lane_capacity,),
+            dtype=dtype,
+        )
         self._producer_direct_ready_flags = self._ctx.zeros(
             (self._producer_direct_max_programs, self.world_size),
             dtype=torch.int32,
         )
-        heap_bases = self._ctx.get_heap_bases()
-        self._group_heap_bases = heap_bases[group_ranks].contiguous()
+        self._producer_direct_lane_ready_flags = self._ctx.zeros(
+            (2, self._producer_direct_max_programs, self.world_size),
+            dtype=torch.int64,
+        )
+        self._producer_direct_topology_status = self._ctx.zeros((2,), dtype=torch.int64)
+        self._producer_direct_fatal_epoch = self._ctx.zeros((1,), dtype=torch.int64)
+        # Keep Iris's authoritative tensor object. Symmetric-heap refreshes
+        # update its entries in place; copied values become stale peer pointers.
+        self._heap_bases = self._ctx.get_heap_bases()
+        self._group_heap_bases = self._heap_bases[
+            list(self._group_global_rank_tuple)
+        ].contiguous()
         group_heap_bases = [int(address) for address in self._group_heap_bases.tolist()]
         self._heap_base_addresses = tuple(
             group_heap_bases + [group_heap_bases[-1]] * (8 - self.world_size)
         )
+        self._group_global_ranks = torch.tensor(
+            self._group_global_rank_tuple,
+            dtype=torch.int64,
+            device=self._heap_bases.device,
+        )
+        self._producer_direct_lanes: dict[
+            tuple[tuple[int, ...], ...], IrisProducerDirectLane
+        ] = {}
         free_gpu_memory_after = _get_available_gpu_memory(torch.cuda.current_device())
         logger.info(
             "Iris all-reduce symmetric-heap buffers allocated: %s GB",
@@ -413,8 +566,7 @@ class IrisAllReduce(object):
         )
         numel = tensor.numel()
         assert numel <= self.max_numel, (
-            f"tensor numel ({numel}) exceeds iris buffer capacity "
-            f"({self.max_numel})"
+            f"tensor numel ({numel}) exceeds iris buffer capacity ({self.max_numel})"
         )
         if tensor.dim() >= 2:
             n_dim = tensor.shape[-1]
@@ -460,6 +612,78 @@ class IrisAllReduce(object):
         if sum(math.prod(shape) for shape in shapes) > self.max_numel:
             raise ValueError("Iris symmetric outputs exceed the input buffer")
         return self._views(self._input_buf, shapes)
+
+    def acquire_producer_direct_lane(
+        self,
+        shapes: tuple[tuple[int, ...], ...],
+    ) -> IrisProducerDirectLane:
+        """Borrow graph-stable producer-direct storage and protocol state."""
+
+        canonical_shapes = tuple(tuple(int(dim) for dim in shape) for shape in shapes)
+        lane = self._producer_direct_lanes.get(canonical_shapes)
+        if lane is not None:
+            lane.validate()
+            return lane
+
+        if not canonical_shapes or any(
+            math.prod(shape) <= 0 for shape in canonical_shapes
+        ):
+            raise ValueError("Iris requires non-empty producer-direct shapes")
+        total_numel = sum(math.prod(shape) for shape in canonical_shapes)
+        if total_numel > self.max_numel:
+            raise ValueError("Iris producer-direct outputs exceed output capacity")
+        if total_numel > self._producer_direct_lane_capacity:
+            raise ValueError(
+                "Iris producer-direct shapes exceed the isolated symmetric "
+                f"capacity ({self._producer_direct_lane_capacity} elements)"
+            )
+        num_tiles = triton.cdiv(total_numel, self._producer_direct_block_size)
+        num_programs = min(num_tiles, self._producer_direct_max_programs)
+        if num_programs != self._producer_direct_max_programs:
+            raise ValueError(
+                "Iris fused producer-direct lane requires exactly "
+                f"{self._producer_direct_max_programs} communication programs"
+            )
+
+        symmetric_producer = self._producer_direct_lane_input_buf.narrow(
+            0,
+            0,
+            total_numel,
+        )
+        symmetric_reduced = self._producer_direct_output_buf.narrow(0, 0, total_numel)
+        graph_tensors = (
+            symmetric_producer,
+            symmetric_reduced,
+            self._producer_direct_lane_ready_flags,
+            self._producer_direct_topology_status,
+            self._producer_direct_fatal_epoch,
+            self._heap_bases,
+            self._group_global_ranks,
+        )
+        lane = IrisProducerDirectLane(
+            symmetric_producer=symmetric_producer,
+            symmetric_reduced=symmetric_reduced,
+            iris_epoch_flags=self._producer_direct_lane_ready_flags,
+            topology_status=self._producer_direct_topology_status,
+            fatal_epoch=self._producer_direct_fatal_epoch,
+            heap_bases=self._heap_bases,
+            group_global_ranks=self._group_global_ranks,
+            group_rank=self._iris_rank,
+            world_size=self.world_size,
+            flag_dtype=torch.int64,
+            protocol_version=IRIS_PRODUCER_DIRECT_PROTOCOL_VERSION,
+            block_size=self._producer_direct_block_size,
+            num_programs=num_programs,
+            num_tiles=num_tiles,
+            shapes=canonical_shapes,
+            _owner=self,
+            _group_global_rank_tuple=self._group_global_rank_tuple,
+            _graph_tensor_ids=tuple(id(tensor) for tensor in graph_tensors),
+            _graph_data_ptrs=tuple(tensor.data_ptr() for tensor in graph_tensors),
+        )
+        lane.validate()
+        self._producer_direct_lanes[canonical_shapes] = lane
+        return lane
 
     def owns_outputs(self, tensors: tuple[torch.Tensor, ...]) -> bool:
         """Whether tensors are consecutive views of this symmetric buffer."""
@@ -1251,7 +1475,6 @@ def iris_allreduce_residual_rmsnorm_kernel_persistent(
 
 
 class IrisAllReduceResidualRMSNorm(object):
-
     def __init__(
         self,
         group: dist.ProcessGroup,
@@ -1263,9 +1486,9 @@ class IrisAllReduceResidualRMSNorm(object):
         device: torch.device = None,
         persistent: bool = False,
     ) -> None:
-        assert (
-            type(group) == dist.ProcessGroup
-        ), f"Expected dist.ProcessGroup, got {type(group)}"
+        assert type(group) == dist.ProcessGroup, (
+            f"Expected dist.ProcessGroup, got {type(group)}"
+        )
         assert dist.is_initialized(), (
             "torch.distributed must be initialized before constructing "
             "IrisAllReduceResidualRMSNorm; call dist.init_process_group() first."
@@ -1323,21 +1546,20 @@ class IrisAllReduceResidualRMSNorm(object):
             f"input must be 2-D (num_tokens, hidden_dim), got "
             f"shape={input_tensor.shape}"
         )
-        assert (
-            input_tensor.shape == residual.shape
-        ), f"residual shape {residual.shape} != input shape {input_tensor.shape}"
+        assert input_tensor.shape == residual.shape, (
+            f"residual shape {residual.shape} != input shape {input_tensor.shape}"
+        )
         assert input_tensor.shape[1] == self.hidden_dim, (
             f"hidden_dim mismatch: input={input_tensor.shape[1]} vs "
             f"backend={self.hidden_dim}"
         )
         num_tokens = input_tensor.shape[0]
         assert num_tokens <= self.max_token_num, (
-            f"num_tokens ({num_tokens}) exceeds max_token_num "
-            f"({self.max_token_num})"
+            f"num_tokens ({num_tokens}) exceeds max_token_num ({self.max_token_num})"
         )
-        assert weight.shape == (
-            self.hidden_dim,
-        ), f"weight shape {weight.shape} != ({self.hidden_dim},)"
+        assert weight.shape == (self.hidden_dim,), (
+            f"weight shape {weight.shape} != ({self.hidden_dim},)"
+        )
         assert input_tensor.is_contiguous() and residual.is_contiguous()
 
         in_view = self._input_buf[:num_tokens, :]
@@ -1414,6 +1636,29 @@ def iris_acquire_outputs(
 ) -> tuple[torch.Tensor, ...]:
     """Return consecutive symmetric producer-output views for Iris."""
     return state.acquire_outputs(shapes)
+
+
+def iris_acquire_producer_direct_lane(
+    state: "IrisAllReduce",
+    shapes: tuple[tuple[int, ...], ...],
+) -> IrisProducerDirectLane:
+    """Borrow the state's graph-stable producer-direct lane."""
+
+    return state.acquire_producer_direct_lane(shapes)
+
+
+def iris_producer_direct_lane_fatal_epoch(lane: object) -> torch.Tensor:
+    """Return the validated CUDA INT64 fatal epoch for host fail-stop checks."""
+
+    unpacked = unpack_iris_producer_direct_lane(lane)
+    fatal_epoch = unpacked.fatal_epoch
+    if (
+        not fatal_epoch.is_cuda
+        or fatal_epoch.dtype != torch.int64
+        or fatal_epoch.shape != (1,)
+    ):
+        raise RuntimeError("Iris producer-direct fatal epoch must be CUDA INT64[1]")
+    return fatal_epoch
 
 
 def iris_all_reduce_symmetric(

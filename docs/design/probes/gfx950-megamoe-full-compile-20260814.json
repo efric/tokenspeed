@@ -1,0 +1,146 @@
+{
+  "timestamp_utc": "2026-08-14T03:25:00Z",
+  "phase": "complete-numerical-body-compile-and-admission",
+  "qualification_status": "SUPERSEDED_PROTOCOL_V2_DO_NOT_USE",
+  "superseded_reason": "Later multi-XCD and cross-NUMA review required protocol-v3 split exact ready/completion flags, dedicated MegaMoE Iris storage, sticky fatal entry, bounded one-shot fatal publication, subgroup-zero payload consumption, and explicit producer VMEM writeback at every gate. The artifact below predates those fixes and must not be launched.",
+  "implemented_regions": [
+    "phase0-router-routed-shared-projections",
+    "sigmoid-bias-top16-and-static-route-plan",
+    "shared-down",
+    "topology-consensus",
+    "linear-MXFP4-W13-and-BF16-SiTU-boundary",
+    "linear-MXFP4-W2-and-BF16-route-boundary",
+    "routed-combine",
+    "21-tile-Iris-producer-direct-allreduce",
+    "final-RMSNorm-routed-up-prefix-shared-add",
+    "process-lifetime-sticky-fatal-entry-guard",
+    "per-subgroup-VMEM-drain-before-Iris-publication",
+    "retained-loaded-direct-launcher"
+  ],
+  "current_artifact": {
+    "status": "SUPERSEDED_BY_PROTOCOL_V3_EXACT_FLAGS_AND_FULL_PUBLICATION_HARDENING",
+    "triton_cache_key": "FCNILBWPIIOO4UQN6GKMCY37YDUEBRKEM5XGLRIZCOA5ME7J7AEQ",
+    "triton_cache_directory": "/home/ericfeng/distributed/.triton-cache/FCNILBWPIIOO4UQN6GKMCY37YDUEBRKEM5XGLRIZCOA5ME7J7AEQ",
+    "python_source_sha256": "fb7c89a354843d3c38429f8a0c291f162bfc292a2738677059fee2dbe943075f",
+    "compiled_kernel_hash": "289a8586cf421cee520df194c1637fc0e840c544676e65c5191381d613e9f809",
+    "compiled_source_sha256": "aedfddc298e54344b94937d0ba5c6c0769ff6d7c45551c44df2a26279ee79f88",
+    "code_object_sha256": "9122636d2cf30d4461d8fda2d1aaea14c5c05ebbe034a67d7d958e7330ba4902",
+    "amdgcn_sha256": "88b2761a2b40b6ae16769a8c102addbae25bd63b68f8e2ddf6a3ea951dc1739a",
+    "metadata_sha256": "e4a494b1b39052dca13a0c4752c1a3f2b9712c84f04be2a70df39ac3d0636fbf",
+    "code_object_size_bytes": 473384,
+    "resources": {
+      "programs": 240,
+      "subgroups": 8,
+      "threads": 512,
+      "shared": 131072,
+      "launch_cooperative_grid": true,
+      "waves_per_eu": 2,
+      "occupancy": 1,
+      "vgpr_count": 169,
+      "sgpr_count": 106,
+      "triton_n_spills": 0,
+      "vgpr_spill_count": 0,
+      "sgpr_to_vgpr_lane_spill_count": 75,
+      "qualified_sgpr_to_vgpr_lane_spill_exact": 75,
+      "private_segment_fixed_size": 0,
+      "uses_dynamic_stack": false,
+      "uses_flat_scratch": false,
+      "scratch_instructions": false
+    },
+    "topk_exactness": {
+      "normalization": "selected logits reloaded and sigmoid recomputed in the exact compact 16-lane layout used by the current Triton reference",
+      "focused_cases": [
+        "random-and-tie",
+        "zero-denominator",
+        "deterministic-seed-490771-case-6"
+      ],
+      "focused_result": "3/3 bitwise IDs and FP32 weights",
+      "expanded_result": "256/256 independent seeds bitwise across scales 0.125, 1, 5.125, and 20; additional top16/top17 tie, one-ULP cutoff, finite extreme, infinity, signed-zero, and all-896-tie sweeps passed"
+    },
+    "manual_wait_timer_units": {
+      "hardware_clock": "gfx950 s_memrealtime at 100 MHz",
+      "raw_tick_nanoseconds": 10,
+      "conversion": "(memrealtime() - start) * 10 before comparison with TIMEOUT_NS",
+      "covered_waits": [
+        "_wait_topology_generation",
+        "_wait_peer_epoch_or_poison"
+      ],
+      "regression_guard": "test_amd_manual_waits_convert_memrealtime_ticks_to_nanoseconds"
+    },
+    "control_state_and_publication_order": {
+      "sticky_fatal_entry": "Every workgroup performs a system-acquire fatal_epoch read and convergently returns before its first store when nonzero; this protects already-captured later layer nodes sharing the workspace.",
+      "publication_sequence": "At both Iris ready and completion publication sites, every subgroup executes an impure s_waitcnt vmcnt(0), then the workgroup rendezvouses, then one elected publisher performs the system-release atomic.",
+      "loaded_amdgcn_explicit_wait_before_barrier_matches": 2,
+      "runtime_code_admission": "Exact HSACO SHA-256, SGPR count, VGPR count, and SGPR-to-VGPR lane-save count are pinned; drift is rejected before collective warmup.",
+      "sgpr_lane_save_delta_rationale": "The sticky early-return control branch raises register-only SGPR-to-VGPR lane saves from 66 to 75; VGPR/SGPR allocation, occupancy, and all no-scratch properties remain unchanged."
+    }
+  },
+  "superseded_memory_order_predecessor": {
+    "status": "MEMORY_ORDER_AND_FAILSTOP_INVALID_DO_NOT_USE",
+    "triton_cache_key": "R4BFKXARPGNAICFOTP5Z4IHXGP6WYABOY2ICZCEYXZVYO3TKXRVQ",
+    "triton_cache_directory": "/home/ericfeng/distributed/.triton-cache/R4BFKXARPGNAICFOTP5Z4IHXGP6WYABOY2ICZCEYXZVYO3TKXRVQ",
+    "python_source_sha256": "81d324f621145b4dd2850cbeb3ec8ca85fc6a8c2bf6651692b8272dc61453eea",
+    "compiled_kernel_hash": "8f02555c11799a0408ae9bfb9e20f733fd6c002ec6902c8898be6b876e6abc6b",
+    "compiled_source_sha256": "c850d374ff4152f22dff3cd21c60bacc06c3f06ea1c80709fff5cd8186b7bc5a",
+    "code_object_sha256": "432bf98a0147293d31c451de5ba28ff73956edf0c6fdf9da579d500a37f453f9",
+    "amdgcn_sha256": "c371187823d6585b4c34de900b32799ba40407353a90f67218c881c56f91f7ff",
+    "code_object_size_bytes": 465344,
+    "sgpr_to_vgpr_lane_spill_count": 66,
+    "rejection_reasons": [
+      "fatal_epoch was compared only against the current generation after phase zero, so already-captured later layer nodes could continue after an earlier node poisoned the process-lifetime shared workspace",
+      "the two Iris publication barriers had no per-subgroup VMEM drain; S_BARRIER does not wait VMEM and the elected release subgroup could publish while another subgroup's payload store was outstanding"
+    ],
+    "replacement_effect": "A sticky system-acquire entry guard aborts every later node before writes, and explicit per-subgroup s_waitcnt vmcnt(0) instructions precede both Iris publication barriers."
+  },
+  "superseded_liveness_predecessor": {
+    "status": "LIVENESS_INVALID_DO_NOT_USE",
+    "triton_cache_key": "Y3YHOZYR3237YDPEB36I7KAEWKBTUB35T2J7DE5X5RSY2V3L62VA",
+    "triton_cache_directory": "/home/ericfeng/distributed/.triton-cache/Y3YHOZYR3237YDPEB36I7KAEWKBTUB35T2J7DE5X5RSY2V3L62VA",
+    "python_source_sha256": "bfa3ceb291ba08540c25534d9c576fff9e272de26a7452eec890bebb7540270b",
+    "compiled_kernel_hash": "c6f0776711deb7fc0de40efc8fa804b2833a077d9e93f193b7ec658d576bf6aa",
+    "compiled_source_sha256": "943129edbc33c323b355729199fca55e4807ed22d814457013331b7239807caf",
+    "code_object_sha256": "69440cf9b3a3ef178e47a80685245979a7e8b56b6738cf1baa31c15651858d3b",
+    "code_object_size_bytes": 463368,
+    "sgpr_to_vgpr_lane_spill_count": 66,
+    "rejection_reason": "Both manual wait loops compared raw 100 MHz s_memrealtime ticks directly with TIMEOUT_NS, producing a fail-stop timeout ten times longer than requested. Triton's AMD TargetInfo converts the same clock to nanoseconds by multiplying by 10.",
+    "replacement_effect": "Both manual waits now convert elapsed raw ticks to nanoseconds before comparing against TIMEOUT_NS. Numerical arithmetic is unchanged."
+  },
+  "rejected_numerical_predecessor": {
+    "status": "NUMERICALLY_INVALID_DO_NOT_USE",
+    "triton_cache_key": "BX2P3CC56ODD2RAK4UWZMSK65EGUA3EWJIZZBI66LBWG7ASU3RPA",
+    "triton_cache_directory": "/home/ericfeng/distributed/.triton-cache/BX2P3CC56ODD2RAK4UWZMSK65EGUA3EWJIZZBI66LBWG7ASU3RPA",
+    "python_source_sha256": "cb573354e8938b469fb601e2e00294edd61b61fcd5df3b0e9c0cb7939f77623d",
+    "compiled_kernel_hash": "0df4fd885df3863d440ae52d96495ee90d406c964a3390a3de586c6f8254dc5e",
+    "compiled_source_sha256": "09b497a13fc1071fdfe1b3e78b5ba12a04d81e732a8d20ab12e60b0699f83c72",
+    "code_object_sha256": "5bc833a2df73e44e33597d66ec9841a422c200fbf2f05a6a9f7073d2ffd1b6fe",
+    "code_object_size_bytes": 480152,
+    "sgpr_to_vgpr_lane_spill_count": 65,
+    "rejection_reason": "The old top-k reused sigmoid values from the 1024-lane selection layout. On deterministic seed 490771 case 6, IDs matched but 12 of 16 normalized FP32 weights were one ULP high versus the current Triton implementation. The 65-spill artifact therefore cannot be qualified.",
+    "replacement_effect": "Reloading selected logits and reproducing the exact compact 16-lane normalization restores bitwise parity and increases the scalar-to-VGPR lane-spill metadata count by exactly one, from 65 to 66. This does not introduce VGPR spills, private memory, dynamic stack, flat scratch, or scratch ISA."
+  },
+  "runtime_stack": {
+    "torch_version": "2.13.0+rocm7.2",
+    "torch_hip_version": "7.2.53211",
+    "architecture": "gfx950",
+    "compute_units": 256,
+    "cooperative_launch_supported": true,
+    "max_shared_mem": 163840,
+    "system_rocr_realpath": "/opt/rocm-7.2.4/lib/libhsa-runtime64.so.1.18.70204",
+    "system_rocr_sha256": "b8cdfe93d343649a35c1daf73a0a3a6840f09379ebeee9be65670461ffea43f4",
+    "system_rocr_build_id": "cbe2c420f8c65e4710580d19cfd7950db722ea9f",
+    "active_hsa_symbols_resolve_to_system_rocr": true,
+    "mapped_hsa_objects": [
+      "/home/ericfeng/distributed/.venvs/tokenspeed/lib/python3.12/site-packages/torch/lib/libhsa-runtime64.so",
+      "/opt/rocm-7.2.4/lib/libhsa-runtime64.so.1.18.70204"
+    ],
+    "hip_object": "/home/ericfeng/distributed/.venvs/tokenspeed/lib/python3.12/site-packages/torch/lib/libamdhip64.so",
+    "mapped_hip_object_count": 1,
+    "triton_driver_source": "/home/ericfeng/distributed/.venvs/tokenspeed/lib/python3.12/site-packages/tokenspeed_triton/backends/amd/driver.c",
+    "cooperative_driver_ten_argument_abi_ok": true
+  },
+  "compile_and_focused_test_command": "LD_PRELOAD=/opt/rocm/lib/libhsa-runtime64.so.1 TOKENSPEED_TEST_MEGAMOE_COMPILE=1 TOKENSPEED_TEST_MEGAMOE_NUMERICS=1 PYTHONPATH=tokenspeed-kernel-amd/python:tokenspeed-kernel/python /home/ericfeng/distributed/.venvs/tokenspeed/bin/python -m pytest -q tokenspeed-kernel/test/ops/moe/megamoe/test_amd_schedule.py tokenspeed-kernel/test/ops/moe/megamoe/test_amd_workspace.py tokenspeed-kernel/test/ops/moe/megamoe/test_amd_direct_launch.py tokenspeed-kernel/test/ops/moe/megamoe/test_amd_compile.py tokenspeed-kernel/test/ops/moe/megamoe/test_amd_topk_parity.py",
+  "focused_test_result": "10 passed in 11.26s",
+  "result": "PASS (compile, module load, exact-function occupancy query, resource admission, raw host/API tests including timer-unit regression guard, and standalone top-k numerical probes; no collective dispatch)",
+  "dispatch_status": "WITHHELD_PENDING_COORDINATED_EIGHT_RANK_CORRECTNESS_HARNESS",
+  "implementation_completion_marker": false
+}

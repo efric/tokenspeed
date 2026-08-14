@@ -464,6 +464,75 @@ class TestFusionParams:
         assert prepare_all_reduce_lane(group, 10752, backend=Backend())
         assert calls == [(group, 10752)]
 
+    def test_acquire_producer_direct_lane_forwards_rank_status(self):
+        from tokenspeed.runtime.distributed.comm_ops import (
+            acquire_producer_direct_lane,
+        )
+
+        lane = object()
+        backend = Mock()
+        backend.acquire_producer_direct_lane.return_value = lane
+        like = torch.empty(1, 3584, dtype=torch.bfloat16)
+        shapes = ((1, 7168), (1, 3584))
+
+        result = acquire_producer_direct_lane(
+            shapes,
+            like,
+            (0, 1),
+            local_status=7,
+            local_reason="invalid projection",
+            backend=backend,
+        )
+
+        assert result is lane
+        backend.acquire_producer_direct_lane.assert_called_once_with(
+            shapes,
+            like,
+            (0, 1),
+            local_status=7,
+            local_reason="invalid projection",
+        )
+
+    def test_producer_direct_consensus_has_callback_compatible_signature(self):
+        from functools import partial
+
+        from tokenspeed.runtime.distributed.comm_ops import (
+            consensus_producer_direct_lane_status,
+        )
+
+        backend = Mock()
+        consensus = partial(
+            consensus_producer_direct_lane_status,
+            group=(0, 1),
+            backend=backend,
+        )
+
+        consensus("compile", 19, "JIT failed")
+
+        backend.consensus_producer_direct_lane_status.assert_called_once_with(
+            (0, 1),
+            stage="compile",
+            local_status=19,
+            local_reason="JIT failed",
+        )
+
+    def test_producer_direct_fatal_epoch_uses_validated_kernel_accessor(
+        self, monkeypatch
+    ):
+        from tokenspeed.runtime.distributed import comm_ops
+
+        lane = object()
+        fatal_epoch = torch.zeros(1, dtype=torch.int64)
+        accessor = Mock(return_value=fatal_epoch)
+        monkeypatch.setattr(
+            comm_ops,
+            "kernel_producer_direct_lane_fatal_epoch",
+            accessor,
+        )
+
+        assert comm_ops.producer_direct_lane_fatal_epoch(lane) is fatal_epoch
+        accessor.assert_called_once_with(lane)
+
     def test_prepare_all_reduce_fusion_hides_kernel_backend(self, monkeypatch):
         from tokenspeed.runtime.distributed import comm_ops
 
@@ -502,7 +571,6 @@ WORLD_SIZES = [
 
 
 class TestCommOps:
-
     @pytest.mark.parametrize("world_size", WORLD_SIZES)
     def test_all_reduce(self, world_size):
         _run(world_size, _test_all_reduce)

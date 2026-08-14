@@ -557,6 +557,11 @@ class AsyncLLM(SchedulerControlClient, EngineClient):
         self,
         obj: UpdateWeightFromDiskReqInput,
     ) -> tuple[bool, str, Any]:
+        if self.server_args.enable_kimi_k3_megamoe:
+            raise RuntimeError(
+                "Online weight replacement is disabled while Kimi-K3 MegaMoE "
+                "plans and captured graphs retain processed-weight addresses"
+            )
         self.auto_create_handle_loop()
 
         # default the load format to the server_args

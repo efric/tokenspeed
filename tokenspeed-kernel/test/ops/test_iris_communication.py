@@ -180,6 +180,13 @@ def test_ordinary_all_reduce_initializes_full_producer_direct_capacity(monkeypat
         return (object(),)
 
     monkeypatch.setattr(iris_ops, "iris_acquire_outputs", acquire_outputs)
+    producer_lane = object()
+    acquire_lane = mock.Mock(return_value=producer_lane)
+    monkeypatch.setattr(
+        iris_ops,
+        "iris_acquire_producer_direct_lane",
+        acquire_lane,
+    )
 
     group = object()
     state = SimpleNamespace(
@@ -194,6 +201,14 @@ def test_ordinary_all_reduce_initializes_full_producer_direct_capacity(monkeypat
 
     triton_ops.all_reduce(state, tensor)
     triton_ops.acquire_symm_outputs(state, ((300,),), torch.bfloat16)
+    assert (
+        triton_ops.acquire_producer_direct_lane(
+            state,
+            ((300,),),
+            torch.bfloat16,
+        )
+        is producer_lane
+    )
 
     create_iris_state.assert_called_once_with(
         group=group,
@@ -202,6 +217,97 @@ def test_ordinary_all_reduce_initializes_full_producer_direct_capacity(monkeypat
         dtype=torch.bfloat16,
         device=torch.device("cpu"),
     )
+    acquire_lane.assert_called_once_with(created_state, ((300,),))
+
+
+def test_producer_direct_lane_exposes_graph_stable_flat_abi():
+    from tokenspeed_kernel.ops.communication import iris as iris_ops
+
+    class FakeContext:
+        def __init__(self, heap_bases):
+            self.heap_bases = heap_bases
+
+        def get_heap_bases(self):
+            return self.heap_bases
+
+    shapes = ((1, 7168), (1, 3584))
+    total_numel = sum(math.prod(shape) for shape in shapes)
+    owner = object.__new__(iris_ops.IrisAllReduce)
+    owner._ctx = FakeContext(torch.arange(8, dtype=torch.int64))
+    owner._input_buf = torch.zeros(total_numel, dtype=torch.bfloat16)
+    owner._producer_direct_output_buf = torch.empty_like(owner._input_buf)
+    owner._producer_direct_lane_input_buf = torch.zeros_like(owner._input_buf)
+    owner._producer_direct_ready_flags = torch.zeros(21, 8, dtype=torch.int32)
+    owner._producer_direct_lane_ready_flags = torch.zeros(
+        2, 21, 8, dtype=torch.int64
+    )
+    owner._producer_direct_topology_status = torch.zeros(2, dtype=torch.int64)
+    owner._producer_direct_fatal_epoch = torch.zeros(1, dtype=torch.int64)
+    owner._heap_bases = owner._ctx.get_heap_bases()
+    owner._group_global_rank_tuple = tuple(range(8))
+    owner._group_global_ranks = torch.arange(8, dtype=torch.int64)
+    owner._producer_direct_lanes = {}
+    owner._producer_direct_block_size = 512
+    owner._producer_direct_max_programs = 21
+    owner._producer_direct_lane_capacity = 512 * 21
+    owner._iris_rank = 3
+    owner.world_size = 8
+    owner.max_numel = total_numel
+    owner.dtype = torch.bfloat16
+    owner.device = torch.device("cpu")
+
+    lane = owner.acquire_producer_direct_lane(shapes)
+    unpacked = iris_ops.unpack_iris_producer_direct_lane(lane)
+
+    assert unpacked is lane
+    assert (
+        lane.symmetric_producer.data_ptr()
+        == owner._producer_direct_lane_input_buf.data_ptr()
+    )
+    assert lane.symmetric_producer.data_ptr() != owner._input_buf.data_ptr()
+    producer_end = lane.symmetric_producer.data_ptr() + (
+        lane.symmetric_producer.numel() * lane.symmetric_producer.element_size()
+    )
+    ordinary_end = owner._input_buf.data_ptr() + (
+        owner._input_buf.numel() * owner._input_buf.element_size()
+    )
+    assert (
+        producer_end <= owner._input_buf.data_ptr()
+        or ordinary_end <= lane.symmetric_producer.data_ptr()
+    )
+    lane.symmetric_producer.fill_(1)
+    assert torch.count_nonzero(owner._input_buf).item() == 0
+    assert (
+        lane.symmetric_reduced.data_ptr()
+        == owner._producer_direct_output_buf.data_ptr()
+    )
+    assert lane.iris_epoch_flags is owner._producer_direct_lane_ready_flags
+    assert lane.iris_epoch_flags.shape == (2, 21, 8)
+    assert owner._producer_direct_ready_flags.dtype == torch.int32
+    assert (
+        lane.iris_epoch_flags.data_ptr()
+        != owner._producer_direct_ready_flags.data_ptr()
+    )
+    lane.iris_epoch_flags.fill_(1)
+    assert torch.count_nonzero(owner._producer_direct_ready_flags).item() == 0
+    assert lane.topology_status is owner._producer_direct_topology_status
+    assert lane.topology_status.shape == (2,)
+    assert lane.fatal_epoch is owner._producer_direct_fatal_epoch
+    assert lane.heap_bases is owner._heap_bases
+    assert lane.group_global_ranks is owner._group_global_ranks
+    assert lane.group_rank == 3
+    assert lane.protocol_version == iris_ops.IRIS_PRODUCER_DIRECT_PROTOCOL_VERSION == 3
+    assert owner.acquire_producer_direct_lane(shapes) is lane
+
+    dedicated_input = owner._producer_direct_lane_input_buf
+    owner._producer_direct_lane_input_buf = dedicated_input.clone()
+    with pytest.raises(RuntimeError, match="producer-direct storage was replaced"):
+        lane.validate()
+    owner._producer_direct_lane_input_buf = dedicated_input
+
+    owner._ctx.heap_bases = owner._heap_bases.clone()
+    with pytest.raises(RuntimeError, match="heap-base tensor was replaced"):
+        lane.validate()
 
 
 # ---------------------------------------------------------------------------
@@ -328,9 +434,9 @@ def _check_all_reduce(state, rank: int, world_size: int, shape, device) -> None:
     expected_value = world_size * (world_size + 1) // 2
     expected = torch.full(shape, expected_value, dtype=torch.bfloat16, device=device)
 
-    assert (
-        result.shape == expected.shape
-    ), f"shape mismatch: {result.shape} vs {expected.shape}"
+    assert result.shape == expected.shape, (
+        f"shape mismatch: {result.shape} vs {expected.shape}"
+    )
     torch.testing.assert_close(result, expected, atol=0, rtol=0)
 
 

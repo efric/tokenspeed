@@ -36,11 +36,16 @@ __all__ = [
     "latent_moe_decode_pipeline_available",
     "latent_moe_expert_shared",
     "latent_moe_input_projections",
+    "KimiK3MegaMoELayerPlan",
+    "KimiK3MegaMoELayerSpec",
+    "kimi_k3_megamoe_available",
+    "kimi_k3_megamoe_decode",
     "moe_apply",
     "moe_plan",
     "moe_process_weights",
     "moe_sigmoid_bias_topk",
     "moe_softmax_topk",
+    "prepare_kimi_k3_megamoe",
 ]
 
 from tokenspeed_kernel.ops.moe.latent_decode import (  # noqa: E402
@@ -49,6 +54,13 @@ from tokenspeed_kernel.ops.moe.latent_decode import (  # noqa: E402
 )
 from tokenspeed_kernel.ops.moe.latent_input import (  # noqa: E402
     latent_moe_input_projections,
+)
+from tokenspeed_kernel.ops.moe.megamoe import (  # noqa: E402
+    KimiK3MegaMoELayerPlan,
+    KimiK3MegaMoELayerSpec,
+    kimi_k3_megamoe_available,
+    kimi_k3_megamoe_decode,
+    prepare_kimi_k3_megamoe,
 )
 from tokenspeed_kernel.ops.moe.native import native_latent_moe_available  # noqa: E402
 from tokenspeed_kernel.ops.moe.sigmoid_topk import moe_sigmoid_bias_topk  # noqa: E402
