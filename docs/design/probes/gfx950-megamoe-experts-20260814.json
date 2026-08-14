@@ -1,0 +1,48 @@
+{
+  "timestamp_utc": "2026-08-14",
+  "phase": "phase0-topk-route-shared-down-w13-w2-last-good",
+  "implemented_regions": [
+    "touched-128KiB-dynamic-LDS",
+    "XCC/P240/barrier/fail-stop/topology",
+    "phase0-projections",
+    "FP32-sigmoid-bias-top16",
+    "local-route-compaction-and-static-XCD-plan",
+    "shared-down-production",
+    "linear-MXFP4-W13",
+    "BF16-SiTU-boundary",
+    "linear-MXFP4-W2",
+    "cumulative-per-route-handoffs"
+  ],
+  "triton_cache_key": "EXKF6URWVXIF6DXDMBZITOSNEVNL3QVO64AAEDWTULPK2GFH36ZQ",
+  "triton_cache_directory": "/home/ericfeng/distributed/.triton-cache/EXKF6URWVXIF6DXDMBZITOSNEVNL3QVO64AAEDWTULPK2GFH36ZQ",
+  "python_source_sha256": "0e98e3f7de1c07f771034144feb76707ef6951e67b55c8d19e0bd46be70187be",
+  "compiled_source_sha256": "f30ba8bfc5391fcaa1b6cced180c0d17c8bbefcc3d6ad00df37eb0736ac8b546",
+  "code_object_sha256": "f9ea5fef1e5e579afd84e73616b090aa4a8395e54d3b1d1447938db4bca548e8",
+  "resources": {
+    "programs": 240,
+    "subgroups": 8,
+    "threads": 512,
+    "shared": 131072,
+    "launch_cooperative_grid": true,
+    "waves_per_eu": 2,
+    "occupancy": 1,
+    "vgpr_count": 167,
+    "sgpr_count": 106,
+    "vgpr_spill_count": 0,
+    "sgpr_spill_count": 65,
+    "private_segment_fixed_size": 0,
+    "scratch_instructions": false
+  },
+  "command": "LD_PRELOAD=/opt/rocm/lib/libhsa-runtime64.so.1 TOKENSPEED_TEST_MEGAMOE_COMPILE=1 PYTHONPATH=tokenspeed-kernel-amd/python:tokenspeed-kernel/python pytest -q tokenspeed-kernel/test/ops/moe/megamoe/test_amd_compile.py -x",
+  "result": "PASS (1 passed)",
+  "stack": {
+    "torch": "2.13.0+rocm7.2",
+    "torch_hip": "7.2.53211",
+    "system_rocr_sha256": "b8cdfe93d343649a35c1daf73a0a3a6840f09379ebeee9be65670461ffea43f4"
+  },
+  "remaining_regions": [
+    "routed-combine",
+    "Iris-producer-direct-allreduce",
+    "final-RMSNorm-linear-add"
+  ]
+}

@@ -62,8 +62,19 @@ class ModelExecutionResult:
     # Optional verify-input snapshot used by speculative diagnostics. Layout is
     # [batch, verify_width]: anchor followed by draft candidate token ids.
     spec_candidate_tokens: torch.Tensor | None = None
+    # Pinned host mirror of Kimi-K3 MegaMoE's monotonic fail-stop epoch.  Its
+    # D2H copy is ordered before copy_event on the model execution stream.
+    kimi_k3_megamoe_fatal_epoch: torch.Tensor | None = None
 
     def sync(self) -> None:
         if self.copy_event is None:
             raise RuntimeError("copy_event is required before synchronizing results.")
         self.copy_event.synchronize()
+        if self.kimi_k3_megamoe_fatal_epoch is not None:
+            fatal_epoch = int(self.kimi_k3_megamoe_fatal_epoch[0])
+            if fatal_epoch != 0:
+                raise RuntimeError(
+                    "Kimi-K3 MegaMoE reported fatal epoch "
+                    f"{fatal_epoch}; discard this output and restart the "
+                    "entire eight-rank serving job"
+                )

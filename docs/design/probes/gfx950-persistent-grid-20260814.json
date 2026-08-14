@@ -1,0 +1,41 @@
+{
+  "date_utc": "2026-08-14",
+  "command": "LD_PRELOAD=/opt/rocm/lib/libhsa-runtime64.so.1 python tools/megamoe/gfx950_persistent_grid_probe.py --replays 1000",
+  "result": {
+    "arrival": 240240,
+    "cooperative": true,
+    "expected_generations": 1001,
+    "gate": 1001,
+    "hsa_symbol_objects": {
+      "hsa_init": "/opt/rocm-7.2.4/lib/libhsa-runtime64.so.1.18.70204",
+      "hsa_shut_down": "/opt/rocm-7.2.4/lib/libhsa-runtime64.so.1.18.70204",
+      "hsa_signal_store_screlease": "/opt/rocm-7.2.4/lib/libhsa-runtime64.so.1.18.70204"
+    },
+    "launch_metadata_cooperative": true,
+    "mapped_hip_objects": [
+      "/home/ericfeng/distributed/.venvs/tokenspeed/lib/python3.12/site-packages/torch/lib/libamdhip64.so"
+    ],
+    "mapped_hsa_objects": [
+      "/home/ericfeng/distributed/.venvs/tokenspeed/lib/python3.12/site-packages/torch/lib/libhsa-runtime64.so",
+      "/opt/rocm-7.2.4/lib/libhsa-runtime64.so.1.18.70204"
+    ],
+    "module_occupancy": 1,
+    "n_regs": 15,
+    "n_spills": 0,
+    "programs": 240,
+    "shared": 131072,
+    "subgroups_per_workgroup": 8,
+    "torch_hip_version": "7.2.53211",
+    "torch_version": "2.13.0+rocm7.2",
+    "waves_per_eu": 2,
+    "xcc_ids": [0, 1, 2, 3, 4, 5, 6, 7]
+  },
+  "stack": {
+    "system_hsa_build_id": "cbe2c420f8c65e4710580d19cfd7950db722ea9f",
+    "system_hsa_sha256": "b8cdfe93d343649a35c1daf73a0a3a6840f09379ebeee9be65670461ffea43f4",
+    "torch_hsa_sha256": "843e549d187929cd884bad148a2faee67159eef1da67adf6320af7c37d9d7739",
+    "triton_commit": "52317baba7586b2143c0b274dd211b70e48f8e5f",
+    "triton_cooperative_abi_patch": "hipModuleLaunchCooperativeKernel uses the installed ten-argument HIP ABI"
+  },
+  "scope": "Residency/lifecycle surrogate only; the final heavy MegaMoE binary must pass the same gates."
+}

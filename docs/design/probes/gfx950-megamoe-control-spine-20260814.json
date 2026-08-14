@@ -1,0 +1,51 @@
+{
+  "timestamp_utc": "2026-08-14T02:11:43Z",
+  "phase": "control-spine-last-good",
+  "implemented_regions": [
+    "touched-128KiB-dynamic-LDS",
+    "HW_REG_XCC_ID-record",
+    "two-four-subgroup-phase0-router-routed-shared-projections",
+    "P240-acq_rel-generation-barrier",
+    "bounded-local-fail-stop",
+    "sorted-nondense-XCC-bootstrap",
+    "generation-tagged-cross-rank-topology-consensus"
+  ],
+  "not_implemented": [
+    "topk-route-plan",
+    "shared-down",
+    "MXFP4-W13",
+    "MXFP4-W2",
+    "routed-combine",
+    "Iris",
+    "final-RMSNorm-linear-add"
+  ],
+  "source": "tokenspeed-kernel-amd/python/tokenspeed_kernel_amd/ops/gfx950/moe/megamoe/kernel.py",
+  "source_sha256": "d5ab350c3a4d8392e1a671c74b4e09434a9f8ba5609989257f437be9ae6d7eba",
+  "admission_source_sha256": "32a2cb220cdc69394a4ec3cca2242011bca2c4feb6f56a3e80061f28d1b2a265",
+  "code_object_sha256": "3afba73e16d38d6537fb8ba7159398b3dab75b270ac884a720a28e5e966ff367",
+  "resources": {
+    "programs": 240,
+    "subgroups": 8,
+    "threads": 512,
+    "shared": 131072,
+    "launch_cooperative_grid": true,
+    "waves_per_eu": 2,
+    "occupancy": 1,
+    "n_regs": 140,
+    "n_spills": 0,
+    "has_scratch_instructions": false
+  },
+  "stack": {
+    "architecture": "gfx950",
+    "compute_units": 256,
+    "torch_version": "2.13.0+rocm7.2",
+    "torch_hip_version": "7.2.53211",
+    "system_rocr_realpath": "/opt/rocm-7.2.4/lib/libhsa-runtime64.so.1.18.70204",
+    "system_rocr_sha256": "b8cdfe93d343649a35c1daf73a0a3a6840f09379ebeee9be65670461ffea43f4",
+    "system_rocr_build_id": "cbe2c420f8c65e4710580d19cfd7950db722ea9f",
+    "hip_object": "/home/ericfeng/distributed/.venvs/tokenspeed/lib/python3.12/site-packages/torch/lib/libamdhip64.so",
+    "cooperative_driver_abi_ok": true
+  },
+  "command": "LD_PRELOAD=/opt/rocm/lib/libhsa-runtime64.so.1 TOKENSPEED_TEST_MEGAMOE_COMPILE=1 PYTHONPATH=tokenspeed-kernel-amd/python:tokenspeed-kernel/python pytest -q tokenspeed-kernel/test/ops/moe/megamoe/test_amd_compile.py",
+  "result": "PASS (1 passed)"
+}

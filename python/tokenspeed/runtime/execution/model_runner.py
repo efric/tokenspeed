@@ -140,9 +140,44 @@ class ModelRunner:
             gpu_id=self.gpu_id,
             memory_saver_adapter=self.memory_saver_adapter,
         )
+        self._kimi_k3_megamoe_fatal_epoch_gpu = None
+        self._kimi_k3_megamoe_fatal_epoch_cpu = None
+        if self.server_args.enable_kimi_k3_megamoe:
+            from tokenspeed.runtime.distributed.comm_ops import (
+                producer_direct_lane_fatal_epoch,
+            )
+
+            plans = self.model._kimi_k3_megamoe_layer_plans
+            fatal_epoch = producer_direct_lane_fatal_epoch(plans[0].lane)
+            if (
+                not isinstance(fatal_epoch, torch.Tensor)
+                or fatal_epoch.dtype != torch.int64
+                or tuple(fatal_epoch.shape) != (1,)
+                or not fatal_epoch.is_cuda
+            ):
+                raise RuntimeError(
+                    "Kimi-K3 MegaMoE lane must expose a graph-stable CUDA "
+                    "INT64 fatal epoch with shape (1,)"
+                )
+            self._kimi_k3_megamoe_fatal_epoch_gpu = fatal_epoch
+            self._kimi_k3_megamoe_fatal_epoch_cpu = torch.empty(
+                (1,), dtype=torch.int64, device="cpu", pin_memory=True
+            )
         self._model_forward_accepts_spec_step_idx = self._forward_accepts_kwarg(
             self.model, "spec_step_idx"
         )
+
+    def enqueue_kimi_k3_megamoe_fatal_epoch_d2h(self) -> torch.Tensor | None:
+        """Enqueue the fail-stop epoch copy on the current model stream."""
+
+        fatal_gpu = self._kimi_k3_megamoe_fatal_epoch_gpu
+        fatal_cpu = self._kimi_k3_megamoe_fatal_epoch_cpu
+        if fatal_gpu is None:
+            return None
+        if fatal_cpu is None:
+            raise RuntimeError("Kimi-K3 MegaMoE fatal-epoch host buffer is missing")
+        fatal_cpu.copy_(fatal_gpu, non_blocking=True)
+        return fatal_cpu
 
     @property
     def multimodal_encoder_dtype(self) -> str | None:
@@ -310,6 +345,13 @@ class ModelRunner:
 
     def update_weights_from_distributed(self, obj) -> tuple[bool, str]:
         """Receive trainer-broadcast weights over the NCCL group and load them."""
+        if self.server_args.enable_kimi_k3_megamoe:
+            return (
+                False,
+                "Online distributed weight replacement is disabled while "
+                "Kimi-K3 MegaMoE is enabled",
+            )
+
         import torch.distributed as dist
 
         pg = getattr(self, "_weight_update_pg", None)

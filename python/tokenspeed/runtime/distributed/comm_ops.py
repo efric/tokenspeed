@@ -42,6 +42,9 @@ from tokenspeed_kernel.ops.communication import (
     prepare_allreduce_fusion as kernel_prepare_allreduce_fusion,
 )
 from tokenspeed_kernel.ops.communication import (
+    producer_direct_lane_fatal_epoch as kernel_producer_direct_lane_fatal_epoch,
+)
+from tokenspeed_kernel.ops.communication import (
     reducescatter_residual_rmsnorm,
 )
 
@@ -212,6 +215,74 @@ def acquire_all_reduce_outputs(
     if backend is None:
         backend = get_global_backend()
     return backend.acquire_all_reduce_outputs(shapes, like, group, op=op)
+
+
+def consensus_producer_direct_lane_status(
+    stage: str,
+    local_status: int,
+    local_reason: str,
+    *,
+    group: Group,
+    backend: CommBackend | None = None,
+) -> None:
+    """Reach rank-uniform agreement before a producer-direct GPU stage.
+
+    All ranks in ``group`` must call this function even when local preparation
+    failed. A nonzero status on any rank raises the same distributed error on
+    every rank before a collective GPU kernel is launched.
+    """
+
+    if backend is None:
+        backend = get_global_backend()
+    backend.consensus_producer_direct_lane_status(
+        group,
+        stage=stage,
+        local_status=local_status,
+        local_reason=local_reason,
+    )
+
+
+def acquire_producer_direct_lane(
+    shapes: tuple[tuple[int, ...], ...],
+    like: torch.Tensor,
+    group: Group,
+    *,
+    local_status: int = 0,
+    local_reason: str = "",
+    backend: CommBackend | None = None,
+) -> object | None:
+    """Collectively acquire opaque graph-stable producer-direct state.
+
+    Args:
+        shapes: Consecutive output shapes the fused producer will write.
+        like: Tensor providing the required dtype and device.
+        group: Ordered global ranks participating in every fused invocation.
+        local_status: Zero after local admission succeeds; nonzero otherwise.
+        local_reason: Bounded diagnostic for a nonzero local status.
+        backend: Optional communication backend override.
+
+    Returns:
+        Opaque backend-owned lane state, or ``None`` when unsupported.
+
+    Raises:
+        RuntimeError: If any rank rejects admission or collective setup fails.
+    """
+
+    if backend is None:
+        backend = get_global_backend()
+    return backend.acquire_producer_direct_lane(
+        shapes,
+        like,
+        group,
+        local_status=local_status,
+        local_reason=local_reason,
+    )
+
+
+def producer_direct_lane_fatal_epoch(lane: object) -> torch.Tensor:
+    """Return a validated CUDA INT64[1] fatal epoch for result-path D2H."""
+
+    return kernel_producer_direct_lane_fatal_epoch(lane)
 
 
 def all_gather(

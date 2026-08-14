@@ -217,6 +217,7 @@ class ServerArgs:
     # MoE backend
     moe_backend: str = "auto"
     draft_moe_backend: str | None = None
+    enable_kimi_k3_megamoe: bool = False
     all2all_backend: str = "none"
     deepep_mode: Literal["auto", "normal", "low_latency"] = "auto"
     disable_flashinfer_cutlass_moe_fp4_allgather: bool = False
@@ -363,6 +364,7 @@ class ServerArgs:
         return _SPEC_OVERSHOOT_SPANS * int(self.speculative_num_draft_tokens)
 
     def __post_init__(self):
+        self._resolve_kimi_k3_megamoe_runtime_contract()
         self.resolve_basic_defaults()
         self.resolve_launcher_topology()
         self.resolve_parallelism()
@@ -373,6 +375,16 @@ class ServerArgs:
         self.resolve_communication()
         self.resolve_disaggregation()
         self.validate()
+
+    def _resolve_kimi_k3_megamoe_runtime_contract(self) -> None:
+        """Force host fail-stop ordering for the experimental persistent path."""
+
+        if self.enable_kimi_k3_megamoe and not self.disable_overlap_schedule:
+            self.disable_overlap_schedule = True
+            logger.info(
+                "Kimi-K3 MegaMoE disabled overlap scheduling so each fatal "
+                "epoch is checked before the next graph replay is enqueued"
+            )
 
     def resolve_basic_defaults(self):
         self.model = maybe_model_redirect(self.model)
@@ -1422,6 +1434,15 @@ class ServerArgs:
             default=ServerArgs.draft_moe_backend,
             help="MoE runner backend for the draft model in speculative decoding. "
             "If not set, defaults to --moe-backend.",
+        )
+        parser.add_argument(
+            "--enable-kimi-k3-megamoe",
+            action="store_true",
+            default=ServerArgs.enable_kimi_k3_megamoe,
+            help=(
+                "Enable the experimental gfx950 Kimi-K3 batch-size-one "
+                "persistent MegaMoE path."
+            ),
         )
         parser.add_argument(
             "--all2all-backend",
