@@ -1,0 +1,905 @@
+{
+  "schema_version": 1,
+  "artifact": {
+    "name": "kimi-k3-tp8-ep1-megamoe-cleansheet",
+    "date_utc": "2026-08-15",
+    "base_commit": "e784229526ce11d272a3c4a0b3f64ab9a8973491",
+    "original_design_commit": "19e30183469abc87b6823d25c8c3cdd7b02769f7",
+    "historical_control_commit": "be7d5001927c9613314f300a420fb88c4bdd4628",
+    "topology": "TP8_EP1",
+    "status": "host_research_only",
+    "production_code_changed": false,
+    "production_code_changed_scope": "no_tp8_implementation_or_semantic_change_required_repository_formatter_edits_excluded",
+    "required_precommit_formatter_changes_retained": true,
+    "compiled": false,
+    "gpu_run": false,
+    "implementation_present": false,
+    "fresh_design": true,
+    "ep8_schedule_reused": false,
+    "schedule_independence_performance_verified": false,
+    "production_megamoe_package_present": false,
+    "situ_decode_layout_failure_is_architectural_evidence": false
+  },
+  "top_main_audit": {
+    "production_megamoe_package_present": false,
+    "tp8_ep1_model_path_end_to_end_qualified": false,
+    "tp8_ep1_routed_rank_reduction_present": false,
+    "tp8_per_rank_situ_compute_control_available": true,
+    "tp8_per_rank_situ_compute_control": "portable_triton_mxfp4_precomputed",
+    "ep8_control_batches": [
+      1,
+      8,
+      16
+    ],
+    "ep8_b1_joint_expert_shared_control_available": true,
+    "gfx950_gluon_fused_family_role": "optimized_component_control_not_current_k3_situ_tp8_path"
+  },
+  "research_ledger": {
+    "tokenspeed": {
+      "sources": [
+        "python/tokenspeed/runtime/models/kimi_k3.py:605-611,1045-1289,1454-1582",
+        "python/tokenspeed/runtime/layers/moe/latent.py:187-294,507-791",
+        "python/tokenspeed/runtime/layers/moe/expert.py:120-150,221-242",
+        "python/tokenspeed/runtime/layers/moe/weights/mxfp4.py:38-102",
+        "tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/triton/kimi3_sigmoid_topk.py:20-82",
+        "tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/triton/mxfp4.py:920-1006",
+        "tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/gluon/mxfp4.py:34-35,99-203,376-441",
+        "tokenspeed-kernel/python/tokenspeed_kernel/ops/communication/iris.py:441-513,759-897",
+        "tokenspeed-kernel-amd/python/tokenspeed_kernel_amd/ops/gfx950/moe/mxfp4/situ_decode.py:71-438",
+        "tokenspeed-kernel-amd/python/tokenspeed_kernel_amd/ops/gfx950/moe/mxfp4/fused/moe.py:1132-1257",
+        "tokenspeed-kernel-amd/python/tokenspeed_kernel_amd/ops/gfx950/moe/mxfp4/weight_preprocess.py:161-294,308-423"
+      ],
+      "transfer": "equations_checkpoint_ownership_materialization_portable_tp_compute_and_optimized_gluon_component_controls",
+      "reject": "ep8_schedule_as_tp8_seed_generic_gluon_as_current_k3_situ_tp_path_or_unreduced_tp8_output_as_serving_baseline"
+    },
+    "triton": {
+      "root": "/home/ericfeng/distributed/triton",
+      "sources": [
+        "python/test/gluon/test_core.py:1669-1703,1837-1897",
+        "third_party/amd/python/test/test_warp_pipeline_gfx9.py:14-128",
+        "test/TritonGPU/amd/amd-block-pingpong-asyncmark-multi-token.mlir:1-71"
+      ],
+      "transfer": "primary_pure_gfx950_gluon_compiler_api_and_emitted_ir_isa_validation_precedent",
+      "reject": "source_annotations_as_overlap_proof_and_cdna5_only_tdm_cluster_mechanics"
+    },
+    "iris": {
+      "root": "/home/ericfeng/distributed/iris",
+      "sources": [
+        "iris/ops/matmul_all_reduce.py:57-65,125-144",
+        "iris/mem/triton/context.py:734-840",
+        "examples/06_message_passing/message_passing_device_context.py:24-89",
+        "examples/31_expert_sharded_moe/moe.py:110-153",
+        "examples/31_expert_sharded_moe/grouped_matmul.py:47-98"
+      ],
+      "transfer": "release_acquire_one_shot_two_shot_and_optional_stable_buckets",
+      "reject": "example_topology_routing_math_and_missing_persistent_reuse_completion"
+    },
+    "megakernels": {
+      "root": "/home/ericfeng/distributed/megakernels",
+      "sources": [
+        "fleet-chiplet-megakernel/include/mirage/persistent_kernel/persistent_kernel.cuh:743-769,1082-1109,1214-1245",
+        "fleet-chiplet-megakernel/include/mirage/persistent_kernel/mpk_atoms.cuh:291-331",
+        "fleet-chiplet-megakernel/include/mirage/persistent_kernel/tasks/mi300/gang_linear_mi300.cuh:23-95",
+        "iris/examples/33_gpt_oss_megakernel/gpt_oss_120b_quantized_megakernel.py:53-56,258-350,389-411",
+        "mixture-of-kittens/csrc/mok_megakernel.cuh:1495-1760",
+        "Megakernels/demos/low-latency-llama/matvec_pipeline.cuh:29-241"
+      ],
+      "transfer": "task_formulas_staged_lifetimes_physical_xcc_and_hierarchical_counters",
+      "reject": "fleet_affinity_assumption_fixed_geometries_and_blackwell_cuda_mechanics"
+    },
+    "comms_notes": {
+      "root": "/home/ericfeng/distributed/comms-notes",
+      "sources": [
+        "building-megakernels/kimik3_moe.txt:4-130,132-220",
+        "building-megakernels/kimik3_moe_bs1.txt:5-64",
+        "megakernels/fleet.txt:61-116",
+        "megakernels/cache-policy.txt:1-31,33-155",
+        "megakernels/iris_gpt_oss_megakernel.txt:1-44",
+        "megakernels/hazyresearch.txt:180-244"
+      ],
+      "transfer": "comparator_timing_protocol_domains_and_cache_visibility_distinction",
+      "reject": "cache_hints_as_ordering_ep8_ownership_and_borrowed_fixed_geometry"
+    },
+    "cdna4": {
+      "root": "/home/ericfeng/distributed/amdgpu-isa-manuals/cdna4",
+      "sources": [
+        "whitepaper.md:35,77-91",
+        "README.md:411,1094,2833-2870,23305"
+      ],
+      "transfer": "hardware_limits_xcc_id_cache_scope_and_ordering_requirements",
+      "reject": "capacity_or_cache_bits_as_performance_proof"
+    }
+  },
+  "dimensions": {
+    "hidden": 7168,
+    "routed_latent": 3584,
+    "experts": 896,
+    "topk": 16,
+    "routed_intermediate_global": 3072,
+    "tp_world": 8,
+    "ep_world": 1,
+    "routed_intermediate_local": 384,
+    "shared_experts": 2,
+    "shared_intermediate_global": 6144,
+    "shared_intermediate_local": 768,
+    "mxfp4_group": 32,
+    "lane_tile_elements": 512,
+    "subgroups_per_workgroup": 8,
+    "target_batches": [
+      1,
+      8,
+      16
+    ]
+  },
+  "rank_local_layouts": {
+    "router_weight_bf16": [
+      896,
+      7168
+    ],
+    "routed_down_weight_bf16": [
+      3584,
+      7168
+    ],
+    "shared_gate_up_weight_bf16": [
+      1536,
+      7168
+    ],
+    "shared_down_weight_bf16": [
+      7168,
+      768
+    ],
+    "routed_norm_weight_bf16": [
+      3584
+    ],
+    "routed_up_weight_bf16": [
+      7168,
+      3584
+    ],
+    "w13_packed_u8": [
+      896,
+      768,
+      1792
+    ],
+    "w13_scale_u8": [
+      896,
+      768,
+      112
+    ],
+    "w2_packed_u8": [
+      896,
+      3584,
+      192
+    ],
+    "w2_scale_u8": [
+      896,
+      3584,
+      12
+    ],
+    "expert_ownership": "all_896_experts_row_sharded_on_local_intermediate",
+    "allow_k384_to_k512_padding": false,
+    "allow_raw_plus_preshuffled_full_expert_copy": false
+  },
+  "materialization": {
+    "router_logits": "fp32",
+    "topk_selection": "fp32_sigmoid_plus_bias_descending_lower_expert_id_tie",
+    "topk_weight": "fp32_unbiased_sigmoid_normalized_then_routed_scale",
+    "routed_down_output": "bf16",
+    "w13_accumulator": "fp32",
+    "w13_output": "bf16",
+    "situ_math": "fp32_beta4_linear_beta25",
+    "situ_output": "bf16",
+    "w2_accumulator": "fp32",
+    "w2_route_output": "bf16",
+    "route_combine": "fp32_original_topk_slot_order_then_bf16",
+    "shared_rank_partial": "bf16",
+    "joint_lane_order": [
+      "shared_hidden_7168",
+      "routed_latent_3584"
+    ],
+    "joint_reduce": "fp32_local_rank_first_then_increasing_peer_group_rank_excluding_local_then_bf16",
+    "routed_norm_output": "bf16",
+    "routed_up_output": "bf16",
+    "final_add": "fp32_routed_then_prefix_then_shared_then_bf16"
+  },
+  "reduction_contract_decision": {
+    "primary": "qualified_k3_iris_destination_local_first_then_increasing_peers",
+    "reason": "minimize_first_discriminator_numerical_risk_without_reusing_ep_task_scheduling",
+    "destination_rank_specific_last_bits_possible": true,
+    "global_0_to_7_common_lane": "later_new_numerical_contract_only",
+    "global_0_to_7_requires": "every_rank_eager_native_tp_boundary_qualification"
+  },
+  "batches": {
+    "1": {
+      "route_slots": 16,
+      "joint_lane_elements": 10752,
+      "joint_lane_bytes_bf16": 21504,
+      "joint_tiles_512": 21,
+      "j0_comm_programs_at_p224": 21,
+      "j0_ready_flag_shape_int64": [
+        2,
+        21,
+        8
+      ],
+      "j0_completion_flag_shape_int64": [
+        2,
+        21,
+        8
+      ],
+      "j0_ready_flag_bytes": 2688,
+      "j0_completion_flag_bytes": 2688,
+      "j0_ready_plus_completion_flag_bytes": 5376,
+      "j0_remote_read_bytes_per_rank": 150528,
+      "j0_contribution_load_bytes_per_rank": 172032,
+      "j0_global_peer_wire_bytes": 1204224,
+      "j1_global_two_phase_wire_bytes": 301056,
+      "input_projection_logical_n16_tiles": 376,
+      "topk_workgroups": 1,
+      "topk_ids_int32_bytes": 64,
+      "topk_weights_fp32_bytes": 64,
+      "w13_logical_n16_tasks": 384,
+      "w2_token_n16_tasks": 224,
+      "shared_down_logical_token_n32_atoms": 224,
+      "final_logical_token_n32_atoms": 224,
+      "logits_bytes": 3584,
+      "routed_latent_bytes": 7168,
+      "shared_activation_bytes": 1536,
+      "routed_activation_bytes": 12288,
+      "route_output_storage_bytes_if_materialized": 114688,
+      "producer_and_reduced_two_slot_ring_bytes": 86016,
+      "expected_unique_experts_uniform": 16.0,
+      "expected_duplicate_slots_uniform": 0.0,
+      "expected_duplicate_fraction_uniform": 0.0,
+      "ideal_unique_weight_bytes_uniform": 183730176.0,
+      "ideal_unique_weight_mib_uniform": 175.21875,
+      "naive_no_reuse_weight_bytes": 183730176
+    },
+    "8": {
+      "route_slots": 128,
+      "joint_lane_elements": 86016,
+      "joint_lane_bytes_bf16": 172032,
+      "joint_tiles_512": 168,
+      "j0_comm_programs_at_p224": 168,
+      "j0_ready_flag_shape_int64": [
+        2,
+        168,
+        8
+      ],
+      "j0_completion_flag_shape_int64": [
+        2,
+        168,
+        8
+      ],
+      "j0_ready_flag_bytes": 21504,
+      "j0_completion_flag_bytes": 21504,
+      "j0_ready_plus_completion_flag_bytes": 43008,
+      "j0_remote_read_bytes_per_rank": 1204224,
+      "j0_contribution_load_bytes_per_rank": 1376256,
+      "j0_global_peer_wire_bytes": 9633792,
+      "j1_global_two_phase_wire_bytes": 2408448,
+      "input_projection_logical_n16_tiles": 376,
+      "topk_workgroups": 8,
+      "topk_ids_int32_bytes": 512,
+      "topk_weights_fp32_bytes": 512,
+      "w13_logical_n16_tasks": 3072,
+      "w2_token_n16_tasks": 1792,
+      "shared_down_logical_token_n32_atoms": 1792,
+      "final_logical_token_n32_atoms": 1792,
+      "logits_bytes": 28672,
+      "routed_latent_bytes": 57344,
+      "shared_activation_bytes": 12288,
+      "routed_activation_bytes": 98304,
+      "route_output_storage_bytes_if_materialized": 917504,
+      "route_output_write_read_bytes_if_materialized": 1835008,
+      "producer_and_reduced_two_slot_ring_bytes": 688128,
+      "expected_unique_experts_uniform": 120.27942703324378,
+      "expected_duplicate_slots_uniform": 7.720572966756222,
+      "expected_duplicate_fraction_uniform": 0.06031697630278299,
+      "ideal_unique_weight_bytes_uniform": 412457505.49013317,
+      "ideal_unique_weight_mib_uniform": 393.35012959492985,
+      "naive_no_reuse_weight_bytes": 1469841408
+    },
+    "16": {
+      "route_slots": 256,
+      "joint_lane_elements": 172032,
+      "joint_lane_bytes_bf16": 344064,
+      "joint_tiles_512": 336,
+      "j0_comm_programs_at_p224": 224,
+      "j0_ready_flag_shape_int64": [
+        2,
+        224,
+        8
+      ],
+      "j0_completion_flag_shape_int64": [
+        2,
+        224,
+        8
+      ],
+      "j0_ready_flag_bytes": 28672,
+      "j0_completion_flag_bytes": 28672,
+      "j0_ready_plus_completion_flag_bytes": 57344,
+      "j0_remote_read_bytes_per_rank": 2408448,
+      "j0_contribution_load_bytes_per_rank": 2752512,
+      "j0_global_peer_wire_bytes": 19267584,
+      "j1_global_two_phase_wire_bytes": 4816896,
+      "input_projection_logical_n16_tiles": 376,
+      "topk_workgroups": 16,
+      "topk_ids_int32_bytes": 1024,
+      "topk_weights_fp32_bytes": 1024,
+      "w13_logical_n16_tasks": 6144,
+      "w2_token_n16_tasks": 3584,
+      "shared_down_logical_token_n32_atoms": 3584,
+      "final_logical_token_n32_atoms": 3584,
+      "logits_bytes": 57344,
+      "routed_latent_bytes": 114688,
+      "shared_activation_bytes": 24576,
+      "routed_activation_bytes": 196608,
+      "route_output_storage_bytes_if_materialized": 1835008,
+      "route_output_write_read_bytes_if_materialized": 3670016,
+      "producer_and_reduced_two_slot_ring_bytes": 1376256,
+      "expected_unique_experts_uniform": 224.41249182603516,
+      "expected_duplicate_slots_uniform": 31.587508173964835,
+      "expected_duplicate_fraction_uniform": 0.12338870380455014,
+      "ideal_unique_weight_bytes_uniform": 640863802.8711601,
+      "ideal_unique_weight_mib_uniform": 611.1753491126634,
+      "naive_no_reuse_weight_bytes": 2939682816
+    }
+  },
+  "fixed_control_metadata_bytes": {
+    "fatal_epoch_int64_1": 8,
+    "topology_status_int64_2": 16,
+    "excluded_from_total_because_design_not_frozen": [
+      "grid_phase_counters",
+      "task_queue_counters",
+      "failure_diagnostics",
+      "j1_tile_control"
+    ]
+  },
+  "weight_traffic_bytes_per_rank": {
+    "scope": "linear_weight_payloads_only",
+    "excluded_routed_norm_bf16_bytes": 7168,
+    "excluded_correction_bias_fp32_bytes": 3584,
+    "excluded_non_linear_parameter_bytes": 10752,
+    "router_bf16": 12845056,
+    "routed_down_bf16": 51380224,
+    "shared_w13_bf16": 22020096,
+    "shared_w2_bf16": 11010048,
+    "routed_up_bf16": 51380224,
+    "fixed_per_batch": 148635648,
+    "one_selected_expert_w13_payload": 1376256,
+    "one_selected_expert_w13_scale": 86016,
+    "one_selected_expert_w2_payload": 688128,
+    "one_selected_expert_w2_scale": 43008,
+    "one_selected_expert_total": 2193408,
+    "rank_local_all_expert_storage": 1965293568,
+    "rank_local_all_expert_storage_mib": 1874.25,
+    "sixteen_selected_experts_total": 35094528,
+    "b1_total": 183730176,
+    "b1_mib": 175.21875,
+    "b1_hbm_lower_bound_us_at_8tbps": 22.966272,
+    "b1_hbm_lower_bound_us_at_5_3tbps": 34.66607094339623
+  },
+  "linear_flops_per_token_per_rank": {
+    "router": 12845056,
+    "routed_down": 51380224,
+    "shared_w13": 22020096,
+    "shared_w2": 11010048,
+    "routed_w13_selected16": 88080384,
+    "routed_w2_selected16": 44040192,
+    "routed_up": 51380224,
+    "total": 280756224
+  },
+  "pipeline_resources": {
+    "w13": {
+      "logical_output_channels_per_task": 16,
+      "physical_gate_up_rows_per_task": 32,
+      "k_tiles": [
+        1024,
+        1024,
+        1024,
+        512
+      ],
+      "full_stage_activation_bytes": 2048,
+      "full_stage_packed_weight_bytes": 16384,
+      "full_stage_scale_bytes": 1024,
+      "full_stage_total_bytes": 19456,
+      "double_buffer_bytes": 38912
+    },
+    "w2": {
+      "output_channels_per_workgroup": 16,
+      "cohorts": 2,
+      "subgroups_per_cohort": 4,
+      "output_channels_per_cohort": 8,
+      "logical_k": 384,
+      "k_tiles": [
+        256,
+        128
+      ],
+      "k256_activation_bytes": 512,
+      "k256_packed_weight_bytes": 2048,
+      "k256_scale_bytes": 128,
+      "k256_stage_total_bytes": 2688,
+      "full_stage_double_buffer_bytes": 5376,
+      "activation_only_double_buffer_bytes": 1024
+    },
+    "dense_bf16_n32_k512": {
+      "stage_activation_bytes": 1024,
+      "stage_weight_bytes": 32768,
+      "stage_total_bytes": 33792,
+      "double_buffer_bytes": 67584
+    },
+    "cdna4_lds_bytes_per_compute_unit": 163840
+  },
+  "event_graph": {
+    "nodes": [
+      "input",
+      "router_logits",
+      "topk",
+      "routed_latent",
+      "routed_w13_situ",
+      "routed_w2_partial",
+      "shared_activation",
+      "shared_down_partial",
+      "producer_phase_gate",
+      "system_release",
+      "peer_system_acquire",
+      "joint_reduce",
+      "completion_plane",
+      "routed_norm_up_final_add",
+      "output"
+    ],
+    "edges": [
+      [
+        "input",
+        "router_logits"
+      ],
+      [
+        "router_logits",
+        "topk"
+      ],
+      [
+        "input",
+        "routed_latent"
+      ],
+      [
+        "routed_latent",
+        "routed_w13_situ"
+      ],
+      [
+        "topk",
+        "routed_w13_situ"
+      ],
+      [
+        "routed_w13_situ",
+        "routed_w2_partial"
+      ],
+      [
+        "input",
+        "shared_activation"
+      ],
+      [
+        "shared_activation",
+        "shared_down_partial"
+      ],
+      [
+        "routed_w2_partial",
+        "producer_phase_gate"
+      ],
+      [
+        "shared_down_partial",
+        "producer_phase_gate"
+      ],
+      [
+        "producer_phase_gate",
+        "system_release"
+      ],
+      [
+        "system_release",
+        "peer_system_acquire"
+      ],
+      [
+        "peer_system_acquire",
+        "joint_reduce"
+      ],
+      [
+        "joint_reduce",
+        "completion_plane"
+      ],
+      [
+        "joint_reduce",
+        "routed_norm_up_final_add"
+      ],
+      [
+        "routed_norm_up_final_add",
+        "output"
+      ]
+    ],
+    "next_epoch_reuse_edge": [
+      "completion_plane_epoch_n",
+      "system_release_epoch_n_plus_1"
+    ],
+    "completion_to_next_epoch_edge": true,
+    "allow_cache_hint_as_ordering": false,
+    "allow_per_route_event_without_independent_consumer": false,
+    "remote_protocol": [
+      "producer_vmem_drain",
+      "system_release",
+      "remote_system_acquire",
+      "peer_load",
+      "completion_release",
+      "remote_completion_acquire_before_reuse"
+    ]
+  },
+  "collective_candidates": {
+    "J0": {
+      "name": "whole_lane_one_shot_pull",
+      "first_choice_batches": [
+        1,
+        8,
+        16
+      ],
+      "result_on_every_rank": true,
+      "rank_accumulation_order": "destination_local_first_then_group_rank_0_to_7_excluding_local",
+      "incremental_events": false
+    },
+    "J1": {
+      "name": "owner_tile_reduce_then_scatter",
+      "eligible_batches": [
+        8,
+        16
+      ],
+      "result_on_every_rank": true,
+      "rank_accumulation_order": "tile_owner_local_first_then_group_rank_0_to_7_excluding_owner",
+      "requires_scatter_handoff": true,
+      "changes_destination_specific_j0_recurrence": true,
+      "requires_numerical_tolerance_acceptance": true,
+      "promote_only_on_full_critical_path_win": true
+    }
+  },
+  "schedule_candidates": {
+    "R0": {
+      "scope": "routed_core_only_first_discriminator",
+      "batches": [
+        1
+      ],
+      "w13": "direct_route_logical_n16_two_stage",
+      "w2": "output_owned_n16_two_four_subgroup_cohorts_exact_k384",
+      "grid_sweep": [
+        224,
+        240,
+        248
+      ],
+      "ep8_control_state_reused": false
+    },
+    "D_J0_A0": {
+      "scope": "direct_full_megakernel_neutral_xcd",
+      "batches": [
+        1,
+        8,
+        16
+      ],
+      "sorting": false,
+      "fine_grained_events": false
+    },
+    "D_J0_A1": {
+      "scope": "direct_full_megakernel_output_xcd_affinity",
+      "batches": [
+        1,
+        8,
+        16
+      ],
+      "affinity_status": "unverified_hypothesis"
+    },
+    "G_J1_A2": {
+      "scope": "stable_expert_bucket_owner_reduce_expert_xcd",
+      "batches": [
+        8,
+        16
+      ],
+      "b1_allowed": false,
+      "affinity_status": "unverified_hypothesis",
+      "route_output_materialization_allowed": true
+    }
+  },
+  "batch_specific_compute_decision": {
+    "B1_routed": "m_fast_vector_gemv_valu_fma_default_no_mfma_requirement",
+    "B8_B16_dense_replicated": "m8_m16_mfma_required",
+    "B8_B16_direct_routed": "m_fast_vector_gemv_because_each_route_has_different_expert_weights",
+    "B8_B16_bucketed_routed": "vector_for_bucket_m_lt_8_mfma_candidate_only_for_real_bucket_m_ge_8",
+    "top_main_tp8_per_rank_control": "portable_triton_mxfp4_precomputed_situ",
+    "top_main_gluon_fused_family": "component_control_requires_separate_situ_qualification",
+    "logical_k384_alone_justifies_mfma": false
+  },
+  "ordinary_b1_isa_baseline": {
+    "source": "historical_pre_refresh_ordinary_branch_expanded_isa",
+    "source_commit": "be7d5001927c9613314f300a420fb88c4bdd4628",
+    "present_on_refreshed_base": false,
+    "mfma_instructions": 0,
+    "s_clause_instructions": 0,
+    "compute_regime": "vector_gemv",
+    "static_instruction_lines": 13653,
+    "static_waitcnt_lines": 1347,
+    "static_barrier_lines": 332,
+    "static_global_load_instructions": 527,
+    "conservative_global_load_issue_groups": 514,
+    "single_load_issue_groups": 506,
+    "maximum_loads_per_issue_group": 4,
+    "rank0_elf_text_bytes": 80384,
+    "rank0_hsaco_bytes": 135840,
+    "counts_are_dynamic": false
+  },
+  "cu_simd_evidence_gate": {
+    "metadata_is_non_promoting": [
+      "vgpr",
+      "sgpr",
+      "lds",
+      "scratch",
+      "nominal_occupancy"
+    ],
+    "required_capture_layers": [
+      "uninstrumented_e2e_3_to_5_runs",
+      "all_8_rank_normal_gpu_timeline",
+      "rocprof_kernel_csv_and_exact_code_object",
+      "targeted_w13_w2_att",
+      "separate_targeted_communication_att",
+      "code_object_disassembly"
+    ],
+    "resident_waves_per_active_compute_unit_expected": 8,
+    "resident_waves_per_simd_expected": 2,
+    "minimum_active_waves_of_8_non_tail": 6,
+    "minimum_fraction_non_tail_intervals_meeting_active_wave_gate": 0.8,
+    "minimum_fraction_k_transitions_with_load_compute_overlap": 0.8,
+    "minimum_dependency_stall_reduction_vs_one_stage": 0.1,
+    "maximum_hot_phase_barrier_idle_fraction": 0.1,
+    "minimum_hot_phase_duration_improvement": 0.03,
+    "code_text_growth_requiring_no_fetch_stall_proof": 0.15,
+    "maximum_xcd_task_active_cycle_spread": 0.1,
+    "minimum_xcd_affinity_target_phase_improvement": 0.03,
+    "maximum_xcd_affinity_full_kernel_regression": 0.01,
+    "b1_issue_overlap": "vmem_with_valu_fma_required_mfma_optional",
+    "b8_b16_dense_issue_overlap": "vmem_with_mfma_required",
+    "b8_b16_direct_routed_issue_overlap": "vmem_with_valu_fma_required",
+    "bucketed_m_ge_8_issue_overlap": "vmem_with_mfma_required_if_mfma_variant_selected",
+    "waitcnt_rule": "required_vmcnt_lgkmcnt_before_consumer_and_independent_issue_before_wait_in_80pct_non_tail_transitions",
+    "memory_clause_rule": "ordinary_b1_has_no_s_clause_and_506_of_514_conservative_issue_groups_are_single_load; candidate_att_must_show_longer_independent_vmem_issue_or_interwave_latency_hiding",
+    "barrier_rule": "reject_if_saved_dependency_stalls_reappear_as_equal_or_larger_barrier_stalls",
+    "icache_rule": "record_text_bytes_hot_span_and_reject_growth_correlated_with_fetch_idle_or_phase_slowdown",
+    "xcd_rule": "same_inputs_routes_physical_xcc_id_task_counts_and_active_cycles_on_all_8_xcds",
+    "att_sampling_rule": "slowest_rank_early_middle_tail_tasks_and_at_least_one_sampled_workgroup_per_xcd",
+    "allow_fast_xcd_only_att_evidence": false,
+    "att_timing_is_performance_evidence": false,
+    "final_promotion_requires": [
+      "numerical_gate",
+      "uninstrumented_e2e_win_at_any_target_batch",
+      "all_rank_normal_timeline",
+      "targeted_att_issue_stall_balance_evidence",
+      "exact_isa_hazard_and_code_footprint_review"
+    ]
+  },
+  "serving_correctness_acceptance": {
+    "workload": {
+      "prompt_tokens_per_request": 4096,
+      "completion_tokens_per_request": 1024,
+      "positive_megamoe_loaded_code_and_dispatch_proof_required": true,
+      "fallback_result_can_qualify": false
+    },
+    "B1": {
+      "expected_successful_requests": 1,
+      "baseline_candidate_prompt_sha256_exact_equal": true,
+      "baseline_candidate_normalized_completion_sha256_exact_equal": true
+    },
+    "B8": {
+      "expected_successful_requests": 8,
+      "identical_prompt_multiset_between_arms": true,
+      "retain_every_prompt_and_completion_hash": true,
+      "completion_hash_equality_required": false,
+      "separate_bitwise_m_specific_boundary_oracle_required": true
+    },
+    "B16": {
+      "expected_successful_requests": 16,
+      "identical_prompt_multiset_between_arms": true,
+      "retain_every_prompt_and_completion_hash": true,
+      "completion_hash_equality_required": false,
+      "separate_bitwise_m_specific_boundary_oracle_required": true
+    },
+    "admission_scope": "win_and_correctness_at_one_batch_admit_only_that_exact_batch_specialization"
+  },
+  "tiny_numeric_oracles": {
+    "mxfp4_e2m1_lut": [
+      0.0,
+      0.5,
+      1.0,
+      1.5,
+      2.0,
+      3.0,
+      4.0,
+      6.0,
+      -0.0,
+      -0.5,
+      -1.0,
+      -1.5,
+      -2.0,
+      -3.0,
+      -4.0,
+      -6.0
+    ],
+    "topk_case": {
+      "selection_scores": [
+        0.9,
+        0.9,
+        1.2,
+        0.1
+      ],
+      "unbiased_scores": [
+        0.1,
+        0.2,
+        0.3,
+        0.4
+      ],
+      "k": 2,
+      "expected_ids": [
+        2,
+        0
+      ],
+      "expected_normalized_weights": [
+        0.75,
+        0.25
+      ]
+    },
+    "joint_lane_case": {
+      "destination_local_rank": 0,
+      "route_weights": [
+        0.25,
+        0.75
+      ],
+      "rank_route_outputs_bf16": [
+        [
+          [
+            1.0,
+            2.0
+          ],
+          [
+            3.0,
+            4.0
+          ]
+        ],
+        [
+          [
+            0.5,
+            -1.0
+          ],
+          [
+            2.0,
+            -0.5
+          ]
+        ]
+      ],
+      "rank_shared_partials_bf16": [
+        [
+          10.0,
+          -2.0,
+          0.5
+        ],
+        [
+          -1.0,
+          4.0,
+          1.5
+        ]
+      ],
+      "expected_rank_routed_partials_bf16": [
+        [
+          2.5,
+          3.5
+        ],
+        [
+          1.625,
+          -0.625
+        ]
+      ],
+      "expected_reduced_shared_then_routed_bf16": [
+        9.0,
+        2.0,
+        2.0,
+        4.125,
+        2.875
+      ],
+      "expected_reduced_bf16_hex": [
+        "4110",
+        "4000",
+        "4000",
+        "4084",
+        "4038"
+      ]
+    },
+    "local_first_peer_ascending_reduce_case": {
+      "contributions_bf16": [
+        100000000.0,
+        1.0,
+        -100000000.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "expected_by_local_rank_fp32_then_bf16": [
+        5.0,
+        5.0,
+        6.0,
+        4.0,
+        4.0,
+        4.0,
+        4.0,
+        4.0
+      ],
+      "expected_by_local_rank_bf16_hex": [
+        "40a0",
+        "40a0",
+        "40c0",
+        "4080",
+        "4080",
+        "4080",
+        "4080",
+        "4080"
+      ],
+      "mathematical_real_sum_after_bf16_inputs": 6.0,
+      "purpose": "detect_reassociation_or_failure_to_use_local_first_then_increasing_peers_for_every_destination_rank"
+    }
+  },
+  "prior_tp_conclusions": {
+    "valid": [
+      "tp_loader_shapes_and_row_sharding",
+      "all_896_expert_shards_per_rank",
+      "tp_removes_ep_route_owner_rank_skew",
+      "logical_k384_is_exact_and_k512_padding_is_avoidable",
+      "shared_and_routed_partials_can_use_one_concatenated_collective",
+      "ideal_expert_element_count_per_rank_equals_ep8",
+      "historical_b1_two_reduction_overhead_is_a_valid_target"
+    ],
+    "invalid_or_premature": [
+      "situ_decode_layout_failure_rejects_tp8",
+      "compile_or_nominal_occupancy_predicts_speed",
+      "k512_is_required",
+      "ep8_route_owner_state_machine_should_seed_tp8",
+      "fleet_expert_xcd_affinity_helps_b1",
+      "per_route_events_help_a_fixed_suffix",
+      "prototype_21gib_memory_delta_is_inherent",
+      "tp8_beats_ep8_at_b1"
+    ]
+  },
+  "smallest_post_refresh_discriminator": {
+    "name": "R0_tp8_routed_core",
+    "inputs": [
+      "routed_latent_bf16_Bx3584",
+      "topk_ids_int32_Bx16",
+      "topk_weights_fp32_Bx16",
+      "one_rank_local_all_896_expert_tp_shards"
+    ],
+    "output": "rank_partial_bf16_Bx3584",
+    "phases": [
+      "w13_direct_logical_n16_two_stage",
+      "one_local_grid_gate",
+      "w2_output_owned_n16_two_four_subgroup_cohorts_exact_k384"
+    ],
+    "timing_controls": [
+      "one_stage_single_cohort_fused_routed_core",
+      "two_stage_two_cohort_fused_routed_core",
+      "bounded_two_kernel_w13_then_w2_same_math_and_tasks"
+    ],
+    "two_kernel_control_purpose": "separate_tp8_topology_from_80384_byte_text_frontend_and_persistent_control_cost",
+    "forbidden": [
+      "ep8_task_or_state_machine_copy",
+      "k512_padding",
+      "communication_or_shared_branch_in_first_probe",
+      "raw_plus_preshuffled_full_expert_copy"
+    ],
+    "advance_after": [
+      "completed_top_main_shape_and_api_audit_at_e7842295",
+      "fresh_ep8_b1_b8_b16_baselines",
+      "same_checkout_portable_tp8_per_rank_compute_controls",
+      "corrected_tp8_routed_reduction_before_any_serving_baseline_claim",
+      "exact_numerical_materialization_match",
+      "routed_core_time_win_at_any_target_batch",
+      "cu_simd_evidence_gate_pass"
+    ]
+  }
+}

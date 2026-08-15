@@ -1,4 +1,6 @@
-# Kimi K3 MegaMoE qualification tools
+# Kimi K3 MegaMoE qualification and clean-sheet research tools
+
+## Qualification tools
 
 `gfx950_persistent_grid_probe.py` qualifies the cooperative 240-workgroup
 persistent-grid mechanism without model weights.
@@ -70,3 +72,41 @@ The comparison fails immediately if measured prompts differ across repetitions
 or arms, or if any completion differs. Therefore the default workflow accepts
 throughput only after proving one prompt hash and one completion hash across all
 six contemporaneous runs.
+## Clean-sheet research artifacts
+
+These host-only artifacts were selectively refreshed onto `origin/main`
+`e784229526ce11d272a3c4a0b3f64ab9a8973491`. They do not import Torch or ROCm,
+change production code, or claim a compiled or GPU-qualified implementation.
+
+The EP8 oracle covers batches 1, 8, and 16. It checks the linear checkpoint
+layout, route ownership, stable expert grouping, deterministic combine order,
+workspace formulas, task counts, traffic bounds, and design-control metadata.
+Its companion design is
+`docs/design/kimi-k3-megamoe-ep8-cleansheet.md`.
+
+```bash
+python tools/megamoe/kimi_k3_ep8_cleansheet_oracle.py --check --pretty
+python -m pytest -q test/cli/test_kimi_k3_ep8_cleansheet_oracle.py
+```
+
+The TP8/EP1 artifact is a separately derived clean-sheet proposal. Its JSON
+contract and standard-library checker validate rank-local shapes, arithmetic
+boundaries, task/traffic formulas, event ordering, and B1/B8/B16 evidence
+gates:
+
+```bash
+python tools/megamoe/verify_kimi_k3_tp8_cleansheet_oracle.py --pretty
+```
+
+Top-main audit caveats are part of both designs:
+
+- the pre-refresh production MegaMoE package and enable flag are absent;
+- current EP8 controls are route-direct at B1/B8/B16, with a stronger fused
+  routed/shared/producer-direct-Iris composition at B1;
+- top main provides TP8 weight ownership and portable per-rank SiTU compute
+  components, but the audited TP8/EP1 native model path does not supply the
+  routed rank reduction required for a qualified end-to-end serving baseline.
+
+No persistent-grid probe, end-to-end benchmark, or production implementation is
+included in this research-only refresh. Add those only after the fresh
+same-checkout controls and APIs are qualified.
