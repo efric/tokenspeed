@@ -170,13 +170,17 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
   prompt/output token counts, every prompt fingerprint matched within batch,
   and all five B1 completions were identical. Separate GPU-only traces prove on
   every rank that B1 executed the latent-input, Kimi top-k, direct W13/W2,
-  Iris, and fused-final kernels; B8/B16 executed packed projection, split
-  epilogue, route-direct top-k, direct W13/W2, and Iris. Grouped W13/W2
-  fallbacks were absent. The server exited gracefully, ports and device owners
-  were empty, all eight cards returned to 0% use/VRAM, and the exclusive lease
-  was released. These are accepted flag-off controls, but the unstable B1/B16
-  distributions require paired contemporaneous baseline/candidate runs for a
-  performance claim.
+  Iris, and fused-final kernels and that B8 executed packed projection, split
+  epilogue, route-direct top-k, direct W13/W2, and Iris; grouped W13/W2 was
+  absent in both accepted decode traces. A mixed B16 EXTEND trace contains one
+  direct 92-layer sweep plus grouped prefill work, but the attempted pure B16
+  DECODE files contain zero kernel events. B16 positive steady-dispatch proof
+  is therefore **pending**, and the erroneous earlier 736-per-kernel claim is
+  withdrawn. The server exited gracefully, ports and device owners were empty,
+  all eight cards returned to 0% use/VRAM, and the exclusive lease was
+  released. The throughput measurements are accepted flag-off controls, but
+  the unstable B1/B16 distributions require paired contemporaneous
+  baseline/candidate runs for a performance claim.
 - **Why historical throughput is stale:** top main keeps AMD decode batches
   through M16 on one AttnRes stream (`4d7886bc`), adds a fused B8/B16 AttnRes
   graph (`41b1e6c6`), and fuses the KDA decode core (`3c16d939`). The multicast
@@ -656,14 +660,15 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
 - Fresh `e7842295` B1/B8/B16 flag-off baseline and all-rank optimized-dispatch
   proof:
   `/home/ericfeng/distributed/.worktrees/tokenspeed/agent/kimi-k3-fresh-main-bench-e7842295/profile_default/kimi-k3-main-e7842295-fresh-20260815T002420Z/REPORT.md`
-  (SHA-256
-  `76ea57e8fc974db10bd1cf15d2b2149d014e38814b6a29e367e6879928bf8b22`),
+  (corrected SHA-256
+  `ebc5341d304a5a86adcbb28df064fa08745446fc221f7161859b3aa755a06bdf`),
   with compact 68-entry `SHA256SUMS` (SHA-256
-  `cb510d67df20234eff911b41d54f96b8e1e5f65a9448118f1c2363cb9875c9a1`)
+  `0037b2332ead0a25ecb8d8d67bc5fea2f25a8b1acec2c96bbab3aac23cfc2ceb`)
   and `cleanup-evidence.txt` (SHA-256
   `1b6c345d61d5adf25a727d67f30c3c69354a94ad47f7cfe00b737b074b41ad2c`).
-  The manifest covers all benchmark inputs/databases/summaries, the 24 chosen
-  per-rank decode traces, logs, report, and cleanup; the full compiler cache is
+  The manifest covers all benchmark inputs/databases/summaries, 16 accepted
+  B1/B8 per-rank decode traces, eight failed B16 capture files retained as
+  negative evidence, logs, report, and cleanup; the full compiler cache is
   deliberately excluded.
 - Historical paired d5dad rejection:
   `profile_default/kimi-k3-megamoe-final-d5dad-20260814T120409Z/comparison.json`.
