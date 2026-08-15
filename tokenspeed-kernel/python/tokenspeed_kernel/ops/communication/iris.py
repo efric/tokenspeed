@@ -179,8 +179,7 @@ class IrisProducerDirectLane:
             self.protocol_version != IRIS_PRODUCER_DIRECT_PROTOCOL_VERSION
             or self.flag_dtype != torch.int64
             or self.iris_epoch_flags.dtype != torch.int64
-            or self.iris_epoch_flags.shape
-            != (2, self.num_programs, self.world_size)
+            or self.iris_epoch_flags.shape != (2, self.num_programs, self.world_size)
             or self.topology_status.dtype != torch.int64
             or self.topology_status.shape != (2,)
             or self.fatal_epoch.dtype != torch.int64
@@ -243,19 +242,19 @@ class IrisRSAG(object):
         device: torch.device = None,
         heap_size: int | None = None,
     ) -> None:
-        assert type(group) == dist.ProcessGroup, (
-            f"Expected dist.ProcessGroup, got {type(group)}"
-        )
+        assert (
+            type(group) == dist.ProcessGroup
+        ), f"Expected dist.ProcessGroup, got {type(group)}"
         assert dist.is_initialized(), (
             "torch.distributed must be initialized before constructing "
             "IrisRSAG; call dist.init_process_group() first."
         )
-        assert _platform.is_amd, (
-            f"IrisRSAG currently targets AMD ROCm; got non-AMD platform: {_platform}"
-        )
-        assert group == dist.group.WORLD or group.size() == dist.get_world_size(), (
-            "iris.ccl all_gather/reduce_scatter do not accept a sub-group."
-        )
+        assert (
+            _platform.is_amd
+        ), f"IrisRSAG currently targets AMD ROCm; got non-AMD platform: {_platform}"
+        assert (
+            group == dist.group.WORLD or group.size() == dist.get_world_size()
+        ), "iris.ccl all_gather/reduce_scatter do not accept a sub-group."
 
         self.group = group
         self.rank_in_group = rank_in_group
@@ -303,9 +302,9 @@ class IrisRSAG(object):
 
     def get_context(self, token_list_in_group: list) -> Tuple[int, int, int]:
         total_num_tokens = sum(token_list_in_group)
-        assert total_num_tokens <= self.max_tokens, (
-            f"The inner comm buffer is too small: {total_num_tokens=} is not <= {self.max_tokens=}"
-        )
+        assert (
+            total_num_tokens <= self.max_tokens
+        ), f"The inner comm buffer is too small: {total_num_tokens=} is not <= {self.max_tokens=}"
         local_num_tokens = token_list_in_group[self.rank_in_group]
         local_token_offset = sum(token_list_in_group[: self.rank_in_group])
         return total_num_tokens, local_num_tokens, local_token_offset
@@ -353,14 +352,14 @@ class IrisRSAG(object):
         token_list_in_group: List[int] = None,
         safe=True,
     ) -> torch.Tensor:
-        assert tp_num_tokens is not None or token_list_in_group is not None, (
-            "Either tp_num_tokens or token_list_in_group must be provided"
-        )
+        assert (
+            tp_num_tokens is not None or token_list_in_group is not None
+        ), "Either tp_num_tokens or token_list_in_group must be provided"
         if token_list_in_group is None:
             token_list_in_group = self.get_token_dist(tp_num_tokens)
-        assert hidden_states.dtype == self.dtype, (
-            f"Only {self.dtype} is supported, got {hidden_states.dtype}"
-        )
+        assert (
+            hidden_states.dtype == self.dtype
+        ), f"Only {self.dtype} is supported, got {hidden_states.dtype}"
 
         local_num_tokens = self._assert_uniform(token_list_in_group)
         total_num_tokens, _, local_token_offset = self.get_context(token_list_in_group)
@@ -399,14 +398,14 @@ class IrisRSAG(object):
         token_list_in_group: List[int] = None,
         safe=True,
     ) -> torch.Tensor:
-        assert tp_num_tokens is not None or token_list_in_group is not None, (
-            "Either tp_num_tokens or token_list_in_group must be provided"
-        )
+        assert (
+            tp_num_tokens is not None or token_list_in_group is not None
+        ), "Either tp_num_tokens or token_list_in_group must be provided"
         if token_list_in_group is None:
             token_list_in_group = self.get_token_dist(tp_num_tokens)
-        assert hidden_states.dtype == self.dtype, (
-            f"Only {self.dtype} is supported, got {hidden_states.dtype}"
-        )
+        assert (
+            hidden_states.dtype == self.dtype
+        ), f"Only {self.dtype} is supported, got {hidden_states.dtype}"
 
         local_num_tokens = self._assert_uniform(token_list_in_group)
         total_num_tokens, _, _ = self.get_context(token_list_in_group)
@@ -448,9 +447,9 @@ class IrisAllReduce(object):
         device: torch.device = None,
         config=None,
     ) -> None:
-        assert type(group) == dist.ProcessGroup, (
-            f"Expected dist.ProcessGroup, got {type(group)}"
-        )
+        assert (
+            type(group) == dist.ProcessGroup
+        ), f"Expected dist.ProcessGroup, got {type(group)}"
         assert dist.is_initialized(), (
             "torch.distributed must be initialized before constructing "
             "IrisAllReduce; call dist.init_process_group() first."
@@ -565,9 +564,9 @@ class IrisAllReduce(object):
             f"backend={self.dtype}"
         )
         numel = tensor.numel()
-        assert numel <= self.max_numel, (
-            f"tensor numel ({numel}) exceeds iris buffer capacity ({self.max_numel})"
-        )
+        assert (
+            numel <= self.max_numel
+        ), f"tensor numel ({numel}) exceeds iris buffer capacity ({self.max_numel})"
         if tensor.dim() >= 2:
             n_dim = tensor.shape[-1]
             m_dim = numel // n_dim
@@ -1486,9 +1485,9 @@ class IrisAllReduceResidualRMSNorm(object):
         device: torch.device = None,
         persistent: bool = False,
     ) -> None:
-        assert type(group) == dist.ProcessGroup, (
-            f"Expected dist.ProcessGroup, got {type(group)}"
-        )
+        assert (
+            type(group) == dist.ProcessGroup
+        ), f"Expected dist.ProcessGroup, got {type(group)}"
         assert dist.is_initialized(), (
             "torch.distributed must be initialized before constructing "
             "IrisAllReduceResidualRMSNorm; call dist.init_process_group() first."
@@ -1546,20 +1545,20 @@ class IrisAllReduceResidualRMSNorm(object):
             f"input must be 2-D (num_tokens, hidden_dim), got "
             f"shape={input_tensor.shape}"
         )
-        assert input_tensor.shape == residual.shape, (
-            f"residual shape {residual.shape} != input shape {input_tensor.shape}"
-        )
+        assert (
+            input_tensor.shape == residual.shape
+        ), f"residual shape {residual.shape} != input shape {input_tensor.shape}"
         assert input_tensor.shape[1] == self.hidden_dim, (
             f"hidden_dim mismatch: input={input_tensor.shape[1]} vs "
             f"backend={self.hidden_dim}"
         )
         num_tokens = input_tensor.shape[0]
-        assert num_tokens <= self.max_token_num, (
-            f"num_tokens ({num_tokens}) exceeds max_token_num ({self.max_token_num})"
-        )
-        assert weight.shape == (self.hidden_dim,), (
-            f"weight shape {weight.shape} != ({self.hidden_dim},)"
-        )
+        assert (
+            num_tokens <= self.max_token_num
+        ), f"num_tokens ({num_tokens}) exceeds max_token_num ({self.max_token_num})"
+        assert weight.shape == (
+            self.hidden_dim,
+        ), f"weight shape {weight.shape} != ({self.hidden_dim},)"
         assert input_tensor.is_contiguous() and residual.is_contiguous()
 
         in_view = self._input_buf[:num_tokens, :]

@@ -32,9 +32,8 @@ from pathlib import Path
 import pytest
 import torch
 
-
 _EXPECTED_KERNEL_SHA256 = (
-    "d5dad109b81c94cef5ff18fa550269ea10d98f06002173fd99df626c40fa48ab"
+    "b0314296919330245d04724afc6e8902c6e2e977936bb101e48e532fb92f5da7"
 )
 _EXPECTED_SPECIALIZATIONS = (
     (
@@ -102,6 +101,51 @@ _EXPECTED_SPECIALIZATIONS = (
         40,
     ),
 )
+
+
+def test_amd_compile_uses_qualified_ordinary_launch_shape() -> None:
+    """Pin the host compile boundary without initializing a GPU."""
+
+    import tokenspeed_kernel_amd.ops.gfx950.moe.megamoe.kernel as kernel_module
+
+    source = Path(kernel_module.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    compile_function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "compile_kimi_k3_megamoe_gfx950"
+    )
+    warmups = [
+        node
+        for node in ast.walk(compile_function)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "warmup"
+    ]
+    assert len(warmups) == 1
+    keywords = {keyword.arg: keyword.value for keyword in warmups[0].keywords}
+    grid = keywords["grid"]
+    assert isinstance(grid, ast.Tuple)
+    assert len(grid.elts) == 1
+    assert isinstance(grid.elts[0], ast.Name)
+    assert grid.elts[0].id == "PROGRAMS"
+    for name, expected in (
+        ("num_warps", 8),
+        ("num_stages", 1),
+        ("waves_per_eu", 2),
+        ("launch_cooperative_grid", False),
+    ):
+        value = keywords[name]
+        assert isinstance(value, ast.Constant)
+        assert value.value == expected
+
+    calls = {
+        node.func.id
+        for node in ast.walk(compile_function)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "preflight_kimi_k3_megamoe_runtime" in calls
 
 
 def _raw_tensors(device: str = "cuda:0") -> tuple[torch.Tensor, ...]:
@@ -468,7 +512,7 @@ def _assert_split_flags_and_bounded_fatal_isa(assembly: str, rank: int) -> None:
 
 @pytest.mark.skipif(
     os.getenv("TOKENSPEED_TEST_MEGAMOE_COMPILE") != "1",
-    reason="requires a gfx950 and the pinned cooperative ROCr process stack",
+    reason="requires a gfx950 and the pinned ROCr process stack",
 )
 def test_amd_raw_megamoe_all_rank_loaded_code_contract() -> None:
     import tokenspeed_kernel_amd.ops.gfx950.moe.megamoe.kernel as kernel_module
@@ -567,7 +611,10 @@ def test_amd_raw_megamoe_all_rank_loaded_code_contract() -> None:
         assert report.subgroups == 8
         assert report.shared == 128 * 1024
         assert report.occupancy == 1
-        assert report.launch_cooperative_grid
+        assert report.compute_units == 256
+        assert report.resident_capacity == 256
+        assert report.resident_capacity >= report.programs
+        assert not report.launch_cooperative_grid
         assert report.waves_per_eu == 2
         assert report.n_regs == 156
         assert report.n_spills == 0

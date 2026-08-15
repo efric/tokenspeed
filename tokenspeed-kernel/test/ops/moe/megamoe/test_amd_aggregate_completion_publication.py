@@ -83,7 +83,6 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from tokenspeed_kernel_amd._triton import gl, gluon, tl
 
-
 _GATE_ENV = "TOKENSPEED_TEST_MEGAMOE_AGGREGATE_COMPLETION"
 _SMOKE_GATE_ENV = "TOKENSPEED_TEST_MEGAMOE_AGGREGATE_COMPLETION_SMOKE"
 _ITERATIONS_ENV = "TOKENSPEED_TEST_MEGAMOE_AGGREGATE_COMPLETION_ITERATIONS"

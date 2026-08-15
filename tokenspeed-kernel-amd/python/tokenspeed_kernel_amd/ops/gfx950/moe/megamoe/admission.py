@@ -104,7 +104,7 @@ class MegaMoERuntimeAdmission:
 
 @dataclass(frozen=True)
 class MegaMoECodeAdmission:
-    """Loaded specialization facts required before cooperative launch."""
+    """Loaded specialization facts required before ordinary launch."""
 
     programs: int
     subgroups: int
@@ -113,6 +113,8 @@ class MegaMoECodeAdmission:
     launch_cooperative_grid: bool
     waves_per_eu: int
     occupancy: int
+    compute_units: int
+    resident_capacity: int
     n_regs: int
     n_spills: int
     sgpr_count: int
@@ -226,11 +228,13 @@ def _validate_driver_abi(path: Path) -> None:
 
 @lru_cache(maxsize=1)
 def preflight_kimi_k3_megamoe_runtime() -> MegaMoERuntimeAdmission:
-    """Validate and record the process-wide cooperative deployment contract.
+    """Validate and record the process-wide isolated deployment contract.
 
     This must run after Python startup but before any MegaMoE compilation or
     launch. It proves that ``LD_PRELOAD`` took effect; setting the environment
-    variable after PyTorch initialized ROCr cannot satisfy this check.
+    variable after PyTorch initialized ROCr cannot satisfy this check. The
+    cooperative capability and launcher-ABI checks remain part of the frozen
+    runtime fingerprint even though the admitted MegaMoE dispatch is ordinary.
     """
 
     if not torch.cuda.is_available() or torch.version.hip is None:
@@ -411,10 +415,10 @@ def admit_kimi_k3_megamoe_compiled_kernel(
             f"group_rank={group_rank}, expert_start={expert_start}"
         )
 
-    preflight_kimi_k3_megamoe_runtime()
+    runtime = preflight_kimi_k3_megamoe_runtime()
     # ``warmup`` compiles without dispatch but lazily defers module loading.
     # Loading the module is required to query the exact hipFunction_t. It does
-    # not enqueue the cooperative grid.
+    # not enqueue the persistent grid.
     if getattr(compiled, "function", None) is None:
         compiled._init_handles()
     metadata = compiled.metadata
@@ -422,6 +426,8 @@ def admit_kimi_k3_megamoe_compiled_kernel(
     cooperative = bool(metadata.launch_cooperative_grid)
     waves_per_eu = int(metadata.waves_per_eu)
     occupancy = _module_occupancy(int(compiled.function), shared)
+    compute_units = int(runtime.compute_units)
+    resident_capacity = occupancy * compute_units
     n_regs = int(compiled.n_regs)
     n_spills = int(compiled.n_spills)
     assembly = _asm_text(compiled).lower()
@@ -451,6 +457,8 @@ def admit_kimi_k3_megamoe_compiled_kernel(
         launch_cooperative_grid=cooperative,
         waves_per_eu=waves_per_eu,
         occupancy=occupancy,
+        compute_units=compute_units,
+        resident_capacity=resident_capacity,
         n_regs=n_regs,
         n_spills=n_spills,
         sgpr_count=sgpr_count,
@@ -472,8 +480,8 @@ def admit_kimi_k3_megamoe_compiled_kernel(
     failures: list[str] = []
     if shared < LDS_BYTES:
         failures.append(f"dynamic LDS {shared} < {LDS_BYTES}")
-    if not cooperative:
-        failures.append("compiled metadata is not cooperative")
+    if cooperative:
+        failures.append("compiled metadata is cooperative; ordinary launch is required")
     if waves_per_eu != 2:
         failures.append(f"waves_per_eu is {waves_per_eu}, expected 2")
     if occupancy != 1:
@@ -518,8 +526,11 @@ def admit_kimi_k3_megamoe_compiled_kernel(
             f"{expected_hash} for group_rank={group_rank}, "
             f"expert_start={expert_start}"
         )
-    if PROGRAMS > occupancy * _EXPECTED_COMPUTE_UNITS:
-        failures.append("cooperative grid exceeds the loaded residency envelope")
+    if resident_capacity < PROGRAMS:
+        failures.append(
+            "ordinary persistent grid exceeds the loaded residency envelope: "
+            f"{resident_capacity} resident slots < {PROGRAMS} programs"
+        )
     if failures:
         raise RuntimeError(
             "Kimi K3 MegaMoE code admission failed: " + "; ".join(failures)

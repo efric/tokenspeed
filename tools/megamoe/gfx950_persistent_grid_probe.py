@@ -89,17 +89,13 @@ def _persistent_grid_probe_kernel(source, payload, arrival, gate, xcc):
     gl.atomic_poll(gate, generation, sem="acquire", scope="gpu")
 
     # Consume another workgroup's payload only after the grid acquire.
-    peer_offsets = ((pid + 1) % _PROGRAMS) * 512 + gl.arange(
-        0, 512, layout=layout
-    )
+    peer_offsets = ((pid + 1) % _PROGRAMS) * 512 + gl.arange(0, 512, layout=layout)
     value = gl.load(payload + peer_offsets, volatile=True)
     gl.store(payload + offsets, value + 1.0)
 
 
 def _compiled_kernel():
-    cache = _persistent_grid_probe_kernel.device_caches[
-        torch.cuda.current_device()
-    ][0]
+    cache = _persistent_grid_probe_kernel.device_caches[torch.cuda.current_device()][0]
     if len(cache) != 1:
         raise RuntimeError(f"expected one compiled specialization, got {len(cache)}")
     return next(iter(cache.values()))

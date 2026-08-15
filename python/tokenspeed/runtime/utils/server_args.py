@@ -364,7 +364,6 @@ class ServerArgs:
         return _SPEC_OVERSHOOT_SPANS * int(self.speculative_num_draft_tokens)
 
     def __post_init__(self):
-        self._resolve_kimi_k3_megamoe_runtime_contract()
         self.resolve_basic_defaults()
         self.resolve_launcher_topology()
         self.resolve_parallelism()
@@ -375,16 +374,6 @@ class ServerArgs:
         self.resolve_communication()
         self.resolve_disaggregation()
         self.validate()
-
-    def _resolve_kimi_k3_megamoe_runtime_contract(self) -> None:
-        """Force host fail-stop ordering for the experimental persistent path."""
-
-        if self.enable_kimi_k3_megamoe and not self.disable_overlap_schedule:
-            self.disable_overlap_schedule = True
-            logger.info(
-                "Kimi-K3 MegaMoE disabled overlap scheduling so each fatal "
-                "epoch is checked before the next graph replay is enqueued"
-            )
 
     def resolve_basic_defaults(self):
         self.model = maybe_model_redirect(self.model)

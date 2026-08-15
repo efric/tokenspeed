@@ -24,7 +24,6 @@ from types import SimpleNamespace
 
 import pytest
 import torch
-
 from tokenspeed_kernel.ops.moe.megamoe.api import (
     _bind_plan_to_current_stream,
     _normalize_specs,

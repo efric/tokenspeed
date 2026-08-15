@@ -89,10 +89,7 @@ HISTORICAL_M1_RUNS = (56.2040, 59.0891, 58.0592)
 HISTORICAL_M1_MEDIAN = 58.0592
 
 FLAG = "--enable-kimi-k3-megamoe"
-ACTIVATION_MARKER = (
-    "Kimi-K3 MegaMoE disabled overlap scheduling so each fatal epoch is "
-    "checked before the next graph replay is enqueued"
-)
+ACTIVATION_MARKER = "Kimi-K3 MegaMoE prepared 92 persistent layer plans"
 FATAL_LOG_PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
@@ -101,6 +98,7 @@ FATAL_LOG_PATTERNS = tuple(
         r"Kimi K3 MegaMoE compile consensus returned after a local failure",
         r"Kimi K3 MegaMoE warmup consensus returned after a local failure",
         r"Kimi-K3 MegaMoE admission consensus returned unexpectedly",
+        r"Kimi-K3 MegaMoE per-result fatal-epoch D2H check is disabled",
         r"gfx950 MegaMoE implementation is not complete",
     )
 )
@@ -295,6 +293,9 @@ def _benchmark_env() -> dict[str, str]:
     env.pop("PYTHONPATH", None)
     env["LD_PRELOAD"] = str(SYSTEM_ROCR)
     env["PYTHONUNBUFFERED"] = "1"
+    # A throughput result is not admissible when fail-stop observation is
+    # disabled. Override inherited profiling environments for both arms.
+    env["TOKENSPEED_K3_MEGAMOE_FATAL_EPOCH_D2H"] = "1"
     return env
 
 
@@ -441,7 +442,7 @@ print("KIMI_CLI_CONTRACT=" + json.dumps({"flag_off": inspect(off), "flag_on": in
         )
     expected = {
         "flag_off": (False, False),
-        "flag_on": (True, True),
+        "flag_on": (True, False),
     }
     for arm, (flag, overlap) in expected.items():
         parsed = report[arm]

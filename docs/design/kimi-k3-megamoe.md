@@ -1,25 +1,724 @@
 # Kimi K3 gfx950 MegaMoE design
 
-Status: correctness-qualified experiment; performance rejected; marker false  
-Target: eight gfx950/CDNA4 GPUs, Kimi K3 TP8/EP8, one-token decode  
-Experiment switch: `--enable-kimi-k3-megamoe`  
-Primary metric: matched batch-size-one output tokens/s
+Status: correctness-qualified experiment; active performance tuning; marker false
+Target: eight gfx950/CDNA4 GPUs; attention TP8; routed MoE EP8 or TP8/EP1;
+decode batches 1, 8, and 16
+Experiment switch: `--enable-kimi-k3-megamoe`
+Primary metric: matched output tokens/s; a win at batch size 1, 8, or 16 is sufficient
 
 This document is the contract for the experimental Kimi K3 MegaMoE path. It
 separates facts verified in the current repository and supplied profiling
 artifacts from design choices, and records which correctness, compiler, and
 performance gates were accepted or rejected.
 
-Final disposition on 2026-08-14: the accepted correctness artifact is the
-restored d5dad per-tile completion protocol, with kernel source SHA-256
-`d5dad109b81c94cef5ff18fa550269ea10d98f06002173fd99df626c40fa48ab`.
+Canonical tuning state on 2026-08-14: the accepted correctness protocol is the
+restored d5dad per-tile completion protocol. The ordinary-launch production
+candidate has kernel source SHA-256
+`b0314296919330245d04724afc6e8902c6e2e977936bb101e48e532fb92f5da7`;
+its kernel body is unchanged from d5dad and only the host compile metadata is
+different.
 Each of the 21 communication workgroups publishes its own completion flag,
 exact-acquires the corresponding flag from all seven peers, and contributes to
 the rank-local communication gate. The experimental implementation marker
 remains `False`: the path is not performance-admitted and the existing fused
 kernels remain the production path.
 
+## Living tuning ledger -- read this first
+
+This is the concise source of truth for ongoing work. Detailed protocol and
+numerical contracts remain in the numbered sections below. Agents must update
+this ledger when an experiment changes disposition, and must record its scope,
+correctness gate, resource gate, performance result, and retained artifact.
+An isolated microbenchmark never overrides an integrated full-body or model
+result.
+
+Disposition labels are: **integrated**, **retain**, **rejected**,
+**promising/unqualified**, **host-qualified**, **active**, and **deferred**.
+
+### One-minute handoff
+
+- **Success criterion:** beat the fresh same-checkout implementation in matched
+  output tokens/s at B1, B8, or B16; report every supported target batch and
+  retain its numerical, protocol, fail-stop, and dispatch proof.
+- **Measured control:** ordinary-launch P240 plus depth-one scheduler overlap is
+  the best qualified B1 MegaMoE control. It is not a clean-sheet architecture
+  constraint and is still slower than the fused path inside the MoE body.
+- **Keep:** d5dad's direct per-tile Iris protocol and self acquire, broad rather
+  than single-XCD expert bandwidth, one joint shared+routed reduction when the
+  topology permits it, and exact BF16/FP32 materialization boundaries.
+- **Do not repeat unchanged:** cooperative launch/stream forwarding, Iris flag
+  batching, global expert-to-XCD affinity, source-only peer preload depths,
+  LDS-only occupancy reduction, the broken staged-W2 layout, or route gates on
+  the current dual-role ownership graph.
+- **Deferred measurement:** the all-rank phase-clock runner has dispatched no
+  MegaMoE grid: its executable-identity classifier and then its fresh-cache
+  whole-HSACO admission both failed closed. A host-verified final cache plan is
+  frozen, but rerun it only after the top-of-main refresh. Phase clocks select a
+  representative occurrence; only a normal timeline plus decoded ATT can prove
+  instruction-level overlap.
+- **Host-qualified redesigns:** independent clean-sheet routed-EP8 and
+  routed-TP8/EP1 plans now cover B1/B8/B16. Their first post-refresh probes
+  separate W13 producers from output-owned W2 consumers; task rings, new
+  workgroup roles, workspace/API versions, and justified bounded splits remain
+  available rather than being forced into P240.
+- **XCD rule:** affinity is phase-specific. Use topology to balance bandwidth
+  and control traffic; never inherit a whole-expert/XCD mapping without a
+  phase-local A/B test.
+- **Promotion rule:** resources and occupancy are only prerequisites. A serious
+  candidate also needs CU/SIMD evidence for live-wave issue overlap, waits,
+  barriers, dependencies, instruction fetch, and XCD balance.
+- **Integration order:** finish the frozen-base research round and ledger, then
+  commit it, fetch/rebase onto top of main, rebuild worktree-bound environments,
+  measure fresh B1/B8/B16 controls, and requalify only surviving designs.
+
+### Canonical checkout and execution path
+
+- **Integrated:** the canonical kernel is ordinary P240, eight subgroups,
+  128 KiB LDS, 156 VGPRs, 106 SGPRs, 40 SGPR lane-save slots, occupancy one,
+  and no scratch/private/VGPR spills. Its source hash is `b0314296...`; its
+  admission source hash is `f05e800b...`; it is AST-identical to the
+  qualification-time `43874a45...` file after the required formatter pass.
+  The 51-tensor ABI and d5dad numerical and memory-order body are unchanged.
+  `launch_cooperative_grid=False` is the only kernel-source difference from
+  d5dad.
+- **Integrated:** scheduler overlap depth one is enabled. The fatal-epoch D2H
+  mirror is a two-slot ring, so the current asynchronous copy cannot race the
+  host's read of the preceding result. Device replays remain serialized on one
+  execution stream; this is CPU/GPU enqueue overlap, not concurrent graph
+  execution. Runtime construction now requires at least `depth + 1` host slots,
+  and the qualification benchmark forces fatal D2H on and rejects the disabled
+  warning rather than accepting an unsafe throughput result.
+- **Retain:** the implementation marker remains `False` until a matched
+  unprofiled flag-on run beats the current arm at B1, B8, or B16 and that
+  batch's correctness/fail-stop gates pass. A win at any one of the three
+  target batch sizes is sufficient to validate the megakernel approach; report
+  all three whenever the candidate supports them.
+- **Design rule:** ordinary P240 is the current measured control, not a
+  mandatory template. Clean-sheet EP8 and routed-TP8/EP1 prototypes may replace
+  its workgroup numbering, static phase barriers, workspace/API, XCD mapping,
+  task ownership, and even single-kernel phase organization. Preserve the
+  model equations, qualified BF16/FP32 boundaries, required deterministic
+  accumulation order, communication happens-before edges, and fail-stop
+  contract; everything else must earn its place experimentally. Target the
+  explicit event/task structure and implementation quality of
+  Mixture-of-Kittens rather than forcing new mechanisms into P240.
+- **Verified call path:**
+
+  ```text
+  KimiLinearMoE.forward (python/tokenspeed/runtime/models/kimi_k3.py:1684)
+      -> kimi_k3_megamoe_decode (tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/megamoe/api.py:165)
+          -> launch_gfx950 (tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/megamoe/gluon.py:353)
+              -> launch_prepared_kimi_k3_megamoe_gfx950 (tokenspeed-kernel-amd/python/tokenspeed_kernel_amd/ops/gfx950/moe/megamoe/kernel.py:2571)
+                  -> _kimi_k3_megamoe_kernel (:1879)
+                      -> _expert_phases (:1243)
+                      -> _iris_communication_tile (:1547)
+  ```
+
+### Performance scoreboard
+
+- **External 4k/1k topology controls:** issue
+  [#55](https://github.com/raikonenfnu/tokenspeed/issues/55) reports the
+  real-checkpoint TP8/EP8 path at **58.98 / 207.05 / 299.45 output tok/s** for
+  B1/B8/B16. Issue
+  [#56](https://github.com/raikonenfnu/tokenspeed/issues/56) reports its
+  real-checkpoint routed-TP8/EP1 prototype at **51.17 / 235.80 / 374.55
+  output tok/s**. Thus routed TP loses 13.2% at B1 but wins 13.9% at B8 and
+  25.1% at B16. These are topology/mechanism controls on `fb00a5be`, not the
+  post-research top-of-main acceptance baseline; refresh all three after the
+  current research round.
+- **Retained 04bc control:** the older matched checkout measured
+  **58.0592 / 193.2465 / 298.7008 output tok/s** at B1/B8/B16. It is useful for
+  detecting gross drift only; it must not replace the fresh same-checkout
+  flag-off comparator.
+- **Reference:** historical fused batch-one throughput is **58.0592 tok/s**
+  with 16.72 ms TPOT. In the matched profiler environment, fused warm TPOT is
+  18.86 ms and a replay spans 17.415 ms: fused MoE 7.932 ms, non-MoE kernels
+  9.184 ms, and intra-replay idle 0.300 ms.
+- **Rejected historical candidate:** cooperative d5dad measured 14.1222 tok/s
+  and 70.35 ms TPOT in the original paired 4096-to-1024 benchmark. Its normal
+  trace spans 73.071 ms: MegaMoE 22.360 ms, non-MoE 37.803 ms, and idle
+  13.192 ms.
+- **Current best, not yet admitted:** ordinary P240 plus overlap produced the
+  same 4096-to-128 text, no fatal event, and 25.31 ms unprofiled TPOT. Across
+  64 complete rank-replays its span is 25.277 ms: MegaMoE 15.644 ms, non-MoE
+  9.266 ms, and idle 0.377 ms. All 5,888 MegaMoE nodes execute on stream 1.
+- **Current shape limit:** the admitted MegaMoE raw ABI is batch one only;
+  B8/B16 are baseline and redesign targets, not supported MegaMoE measurements.
+  A batch winner needs a distinct compile-time schedule and any required API or
+  workspace versioning before it can enter the matched serving benchmark.
+- **Current critical gap:** ordinary launch removed the cooperative side-stream
+  and whole-model interference. Of the remaining 7.862 ms/replay gap versus
+  fused, 7.712 ms (98.1%) is now inside the MegaMoE body. The next acceptance
+  B1 run must still use the full matched 4096-to-1024 benchmark; the shorter
+  trace is diagnostic evidence, not a throughput win. Separate fresh
+  top-of-main output-throughput controls are required for B8 and B16.
+- **Static CU/SIMD baseline, not a dynamic conclusion:** the admitted rank-zero
+  ordinary body has an 80,384-byte ELF `.text` section and 13,653 instruction
+  lines, including 1,347 `s_waitcnt`, 332 `s_barrier`, 604 `s_nop`, 463
+  `global_load_dwordx2`, and 78 packed buffer loads; it emits no MFMA
+  instruction because this B1 path is a vector GEMV.
+  It also emits no `s_clause`: under a conservative static partition at waits,
+  barriers, stores, and atomics, 527 global-load instructions form 514 issue
+  groups, and 506 of those groups contain only one load (maximum four).
+  Those counts include mutually exclusive rank/role and timeout branches, so
+  they do not measure executed issue mix. Use phase clocks only to select the
+  dominant occurrence, then use a timeline plus decoded ATT to determine
+  whether the live waves actually interleave VMEM, LDS, and VALU work or stall
+  on waits, barriers, dependency chains, or instruction fetch.
+- **Existing fused ATT control, perturbed but dynamic:** decoded `code.json`
+  reports aggregate stall/latency ratios of 81.21% for the exact-B1 packed
+  input projection, 81.44% for exact-B1 W2/shared, and 74.23% for exact-B1
+  final RMS/up. Their largest sampled stalls are VMEM waits at
+  `latent_input_decode.py:116,134`, `situ_decode.py:421`, and
+  `rmsnorm_linear_add.py:74`. The available W13 wave capture is M16 rather than
+  exact B1 and reports 62.25%, so it is ISA/mechanism evidence only. ATT
+  serialization perturbs duration—especially Iris—and these ratios are not
+  serving-time percentages; use them to define the load/wait/interleaving
+  control that a candidate must beat.
+- **Target calibration:** the fused graph's W2-plus-combine leaf has median
+  9.919 us, not the roughly 24.5 us standalone event-envelope number. Use the
+  graph value when prioritizing W2 redesigns.
+- **Primary artifact:**
+  `profile_default/kimi-k3-megamoe-ordinary-overlap-on-valid-sdk-stack0-20260814T203803Z/analysis.md`.
+
+### Integrated wins and retained protocol decisions
+
+- **Integrated -- ordinary launch:** ordinary and cooperative d5dad compile to
+  the same AMDGCN/HSACO and resources apart from launch metadata. Eager and
+  captured rank-zero parity, all-rank loaded-code admission, balanced EP8 with
+  200 replays, rank-zero-concentrated L16, and missing-rank fail-stop all pass.
+  Loaded capacity is 256 workgroups for P240.
+- **Integrated -- scheduler overlap:** healthy outputs are deterministic across
+  repeated 4096-to-128 requests. A sticky device fatal makes the one already
+  enqueued successor self-abort, while the two-slot host mirror preserves
+  fail-stop observation.
+- **Retain -- direct Iris protocol:** keep 21 per-stripe ready publications,
+  21 one-subgroup reducers, per-tile completion, exact peer acquisition, and
+  self-acquire. This is currently faster than every tested flag-batching
+  hierarchy despite executing more system atomics.
+- **Deprioritize -- textbook tree all-reduce:** the current world-eight lane
+  performs one-hop peer loads in the required rank order. A tree adds dependent
+  hops, changes the numerical recurrence, and does not remove payload bytes;
+  the tested hierarchical flag schemes already lost. Reconsider hierarchy only
+  as a payload-partitioned pipeline with an explicit critical-path model, not as
+  a mechanical replacement for seven direct loads.
+- **Retain -- current XCD ownership:** use XCD topology for deterministic local
+  rank discovery and balanced work, but do not bind a whole routed expert to
+  one XCD. Affinity is a phase-specific hypothesis, not a global invariant.
+- **Retain -- eight subgroups for the full body:** four-subgroup and staged
+  variants remain useful resource probes, but none has produced an integrated
+  win. Resource ceilings are admission observations, not tuning limits; larger
+  LDS/register use is acceptable when it wins without spills or loss of
+  required residency.
+
+### Completed experiments -- do not repeat without a new discriminator
+
+- **Rejected -- cooperative same-stream forwarding:** forwarding the captured
+  stream handle still placed all MegaMoE nodes on capture stream 5. Per-layer
+  before/after handoffs remained about 12.2 ms/replay. Ordinary launch, not the
+  wrapper forwarding change, fixed placement.
+- **Rejected -- aggregate completion:** the isolated publication litmus passed,
+  but EP8 latency regressed 0.163426 to 0.170793 ms (+4.51%). The source is
+  retained only as negative evidence.
+- **Rejected -- Iris flag batching:** world-eight rank-max p50/p95 was
+  60.5815/65.4420 us for direct357 system operations, 61.9220/67.3620 us for
+  compact199, and 62.6220/67.6810 us for preferred21-with-follower199. Fewer
+  flags did not compensate for extra local control. Removing the self acquire
+  also lost about 1.10% p50 on the physical-0/4 pair.
+- **Rejected for the current B1 control -- inherited whole-expert/XCD
+  affinity:** isolated W13 favored
+  wider XCD fanout (fanout 1/2/4/8 cold p50 76.082/56.661/44.201/37.301 us).
+  A distributed logical role improved an isolated W13 lane by 2.61% cold and
+  was neutral in isolated W2, but the integrated A/B/D test reversed it. At L2,
+  current A was 126.964 us, distributed B was +0.503%, and W13-only D was
+  +2.111%; at L16 B was +0.884% and D +2.211%. That full-body result is rank
+  zero with locally aliased Iris, not EP8 communication evidence. Keep A for
+  the current B1 body. B8/B16 expert buckets, new cohort layouts, and real
+  world-eight phase-local XCD policies remain independent experiments.
+- **Rejected -- staged two-cohort W2 prototype:** its first LDS staging layout
+  was numerically wrong (3,575/3,584 BF16 elements differed). It is a test bug,
+  not evidence against correct staging, but that implementation must not be
+  timed or promoted.
+- **Rejected -- unchanged P226 subgroup/cache variants:** `.ca` was about 22%
+  slower than `.cv` on rotating cold weights; the explicit two-group K-loop
+  pipeline was about 54.5% slower; four subgroups were about 24.8% slower.
+  Their higher reported occupancy did not offset added barriers, waits, and
+  reduced outstanding cold-load overlap.
+- **Promising/unqualified -- larger W2 grids:** a broad sweep overstated its
+  gain. The narrow retained comparison found P256/W242 only 0.93% better cold
+  p50 than W226 but 9.42% better p95. This supports a full-body phase-balance
+  test, not a claimed median win.
+- **Promising/unqualified -- no-timeout polling:** rank-zero generated AMDGCN
+  shrank 35.2%, timers 46 to 4, exchanges 192 to 24, barriers 332 to 115, and
+  an immediate-ready paired probe improved about 1.72%. It changes a protocol
+  failure from bounded poison to watchdog-recovered hang; no world-eight stale,
+  skew, reuse, or model qualification exists.
+- **Promising/unqualified -- runtime peer loops:** ready/completion loops and
+  rank-ascending payload recurrence are semantically preserved. Rank-zero code
+  shrank 20.4% with unchanged 156 VGPR/106 SGPR and no scratch, but LLVM partly
+  unrolled/tail-merged the loops and no dispatch/timing/world-eight result
+  exists.
+- **Rejected as primary explanation -- cold weights:** rotating 92 exact layer
+  pointers added 1.1995 us to phase zero and 1.2400 us to final; their sum is
+  only 2.98% of the former approximately 82 us isolated gap. A fixed GEMV after
+  either phase slowed only 0.26/0.18 us. Coldness exists but is not the main
+  current-body explanation.
+- **Retain as profiler procedure:** a valid ROCm GPU trace in this environment
+  requires the reference-compatible `libtorch_cpu.so` plus system HSA runtime.
+  HSA-only and registrar-only attempts produced CPU-only traces. Stack-enabled
+  fused export also inflated files and wall time; use stack-disabled capture
+  after a one-operation GPU/runtime category gate.
+- **Retain -- fatal D2H check:** the healthy 8-byte copy has about 6.36 us host
+  API median and is already queued without an inter-replay gap. It is not the
+  remaining body bottleneck; the profiling-only D2H-off arm has not been run
+  and should not displace phase work.
+
+### Active experiments, in priority order
+
+- **Host-qualified clean-sheet design -- routed MoE EP8:** ordinary P240 is
+  only the measured control. The frozen design splits K0 projection/schedule,
+  a resident event-driven K1 routed/shared core plus joint reduction, and K2
+  final projection. Its first K1 discriminator uses separate W13 producers and
+  W2 consumers in a measured P256 placement; B1 is output-centric vector GEMV,
+  while B8/B16 compare exact route-direct/vector work with stable exact-ragged
+  buckets and MFMA only where measured expert-row reuse exists. One symmetric
+  payload has distinct monotonic ready and completion planes. Every subgroup
+  issuing peer VMEM acquires for itself; the only alternative is one acquiring
+  leader loading fresh/versioned LDS followed by a workgroup barrier. Twelve
+  host oracle cases pass, including exact route work and B8/B16 nondeterministic
+  serving policy. No kernel has compiled or run. Frozen commits are `8317e6f1`
+  plus corrective `8129173a`; final design/oracle hashes are `f7088beb...` and
+  `d5a702f7...`. First post-refresh implementation is a standalone B8 local K1
+  core against the existing route-direct control and a fully bounded control;
+  it must pass normal timeline and targeted CU/SIMD ATT gates before Iris or
+  production integration.
+
+- **Deferred until the post-refresh control -- phase critical path:** the first
+  bounded all-rank runner compiled production, compile-time-false control, and
+  clock arms on all eight ranks, then stopped before its first MegaMoE dispatch
+  because the old normalizer retained DWARF and kernel/file symbol identity.
+  Artifact review proves all eight production/control pairs have identical ELF
+  `.text`, instruction lines, CFG, kernarg layout, and resources. A corrected
+  run with a fresh worktree cache again stopped before dispatch because absolute
+  source/debug identity changed the whole HSACO and admission correctly rejected
+  it. The final host-only plan copies the exact qualified 57-file ordinary cache
+  into a disposable cache, pins all eight admitted objects, rejects a production
+  cache miss before compiling diagnostics, and bounds the run to 48 generations
+  per rank. Its verifier passes; no timestamp, perturbation, or ATT result exists.
+  Revalidate that plan after rebasing rather than carrying stale code objects.
+- **Rejected -- Iris subgroup-zero payload preload:** depths 2/4/8 preserved
+  direct357 correctness and ascending-rank FP32 order, but all compiled to 16
+  packed loads with a maximum of one load between waits. Depth1 hot/cold p50
+  was 59.762/61.101 us. Depth2 was -1.87%/+2.82%, depth4 -1.67%/+0.07%, and
+  depth8 -2.41%/-0.62%; no arm won at least 1% in both regimes. Do not promote
+  or run world eight. Mixture-of-Kittens' address-precompute/issue/consume
+  pattern needs a lower-level compiler schedule or cross-subgroup staging to
+  transfer; source restructuring alone did not create independent VMEM issue.
+- **Active -- two-stage compute K loops:** test native CDNA4 asynchronous-copy
+  ping-pong through the qualified Gluon `cdna4.async_copy` surface, paired with
+  the general gfx950 `warp_pipeline_stage`, while keeping exact reduction order.
+  Retain a source-level two-stage loop as the control. Local Triton owns the
+  frontend/lowering contract, Mixture-of-Kittens supplies the loader/consumer
+  lifetime target, and Iris GPT-OSS supplies an existing staged-GEMV control.
+- **Rejected compiler shape -- 80 KiB LDS:** the exact 128 KiB/8-subgroup
+  control loaded at occupancy one with canonical resources. A single 80 KiB
+  Gluon allocation failed before TTGIR/HSACO because LinearLayout requires the
+  allocation's out-dimension size to be a power of two. This says nothing about
+  loaded occupancy.
+- **Rejected -- LDS-only two-workgroup residency:** legal 64 KiB/8-subgroup
+  variants still loaded at one workgroup/compute unit. With the explicit
+  `waves_per_eu=2` attribute, the compiler reported two waves/SIMD. Omitting
+  the attribute reduced VGPRs 156 to 155 and raised that limit to three
+  waves/SIMD, but two eight-subgroup workgroups require four waves/SIMD. Both
+  arms had zero scratch/private/VGPR spills. Register/lifetime reduction or a
+  real four-subgroup remap is required before P480/P512; smaller LDS alone is
+  not a sufficient lever. Retained manifest:
+  `/home/ericfeng/distributed/.worktrees/tokenspeed/agent/megamoe-lds-grid-resource/profile_default/kimi-k3-resource-grid-64kib-followup-20260814T222459Z/followup-manifest.json`.
+- **Active -- grid/resource sweep:** smaller full-body grids
+  P224/P226/P232/P240/P248/P256 are a barrier-versus-wavefront axis independent
+  of two-workgroup residency; do not assume a larger grid is better. Fixed
+  logical work remains phase0=240, shared/final=224, expert=226, Iris=21, so
+  every grid needs an exact loop/census oracle.
+- **Host-qualified clean-sheet design -- routed MoE TP8/EP1:** the frozen
+  design artifact is independently derived rather than being an adaptation of
+  the EP8 route-owner/state-machine/grid spine. It derives all 896 per-rank
+  expert shards and exact local I=384 from
+  checkpoint ownership, uses EP8 only as a numerical/throughput comparator,
+  and retains no all-to-all, AITER dependency, FP8 intermediate, or physical
+  K512 padding. The first routed-core-only R0 discriminator consumes prepared
+  `z`/top-k, runs 384 W13 N16 tasks through K `[1024,1024,1024,512]`, one local
+  gate, then 224 output-owned W2 N16 tasks through exact K `[256,128]` with two
+  four-subgroup cohorts; sweep P224/P240/P248 against one-stage and bounded
+  two-kernel controls. J0 later publishes one joint shared+routed lane and
+  preserves the qualified destination-local-first, increasing-peer recurrence
+  on every rank. J1 owner/scatter changes that arithmetic and is B8/B16-only
+  behind numerical tolerance and a critical-path win. Its 273-check host oracle
+  passes; no kernel has compiled or run. Frozen signed commit `19e30183`; final
+  design/oracle/checker hashes `fa812161...`/`64c3616b...`/`9af3b08f...`.
+  The prior P1 probe was an EP-spine adaptation and cannot reject this design.
+  Retain from it only topology measurements, exact K384, the 18.71-GiB K512
+  padding diagnosis, and the joint-reduction goal. In that old implementation,
+  the first N8/K64 stage-2
+  probe failed `ConvertTritonAMDGPUToLLVM`. The later exact N32/K64 probe failed
+  earlier, during AST-to-TTIR: `scaled_upcast` returned a builder-inferred
+  `DistributedLinearLayout`, while the intermediate had an explicit
+  `BlockedLayout([4,2], [1,64], [8,1], [1,0])`; Gluon requires identical
+  layout objects for the broadcast multiply. No stage-2 candidate emitted
+  TTIR/HSACO or dispatched. The four-packed-values-per-thread arithmetic test
+  is therefore necessary but not compile-sufficient. After the main refresh,
+  test exactly one compile-only repair first: convert the expanded weight to
+  the intermediate layout with `assert_trivial=True`. If that is nontrivial,
+  reject it and try an inferred activation layout with only reduced-N
+  conversion. That is a narrow compiler discriminator for the old prototype,
+  not the starting point or acceptance gate for the clean-sheet design. Exact
+  candidates use no K-tail mask; padded controls retain it. Implementation
+  independence and performance remain **deferred** because this clean-sheet
+  design has not yet produced a kernel.
+- **Deferred -- per-route W13 gates in the current static ownership:** the
+  existing 16-wide `w13_arrival`, `w13_gate`, and `w13_target` planes can express
+  exact route gates for `L<=8`, and the dependency graph is deadlock-free when
+  each producer publishes before waiting. It still cannot shorten the modeled
+  critical path: all 226 W2 consumers are also W13 producers, so the last W13
+  producer retains its full static W2 suffix before the all-226 W2 completion.
+  The zero-poll makespan delta is exactly zero for every `L=1..8`, while W13
+  acquires rise from 226 to `226*L` (an added `226*(L-1)`). Do not build this
+  arm alone. Reopen route/chunk events only in a clean-sheet schedule that
+  decouples or redistributes W2 ownership through a consumer cohort, task ring,
+  or dynamic queue; then compare the event mechanism factorially against the
+  ownership change.
+- **Researched proposal -- phase-zero shared/router loop fusion:** workgroups
+  112..191 currently call `_phase0_shared_pair` and then
+  `_phase0_router_pair`, reloading the same hidden-state K tile in two loops.
+  A joint loop can retain separate accumulators and exact stores while issuing
+  the activation load once. Accept higher registers if phase-zero timing wins
+  and loaded occupancy remains sufficient.
+- **Researched proposal -- Iris-to-final RMS handoff:** all 224 final
+  workgroups currently rescan and reduce the same 3,584-element routed BF16
+  vector before projection. Compute the scalar once at the communication
+  frontier and publish it with `comm_gate`, then let final workgroups consume
+  it. This is eligible only with a portable/qualified multi-producer
+  happens-before chain and bitwise parity of the current RMS reduction; a
+  relaxed-arrival inference alone is insufficient.
+- **Target batches 1/8/16:** batch one remains latency-sensitive; ordinary P240
+  is only the current monolithic control, not a required spine. B8 and B16 may
+  use distinct compile-time schedules/API workspace.
+  Test M-fast/windowed traversal and reuse the same weight tile across token
+  rows before adding route affinity. Do not extrapolate B8/B16 wins to B1, but
+  a matched output-throughput win at either target batch is independently
+  sufficient.
+
+### Cross-source redesign findings
+
+- **Source hierarchy:** use `/home/ericfeng/distributed/triton` as the primary
+  source for pure gfx950 Gluon frontend, layout, pipeline, and lowering
+  contracts; use Fleet and Iris as AMD megakernel organization precedents; use
+  Mixture-of-Kittens as the event/task-lifetime and implementation-quality bar.
+  `vroomvroom` remains useful for symmetric-memory correctness and source-shape
+  review, but its Triton-shmem transformations are not an architecture template
+  for a pure Gluon compute kernel.
+- **Existing optimized TokenSpeed MoE kernels are first-class controls:** the
+  fused K3 path packs router/routed/shared input projections only when their
+  rows share one allocation and 128-row region boundaries
+  (`tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/latent_input.py:19-57`),
+  then calls one expert/shared operation and one joint reduction
+  (`python/tokenspeed/runtime/models/kimi_k3.py:1636-1679`;
+  `python/tokenspeed/runtime/layers/moe/latent.py:141-181`). On gfx950, the
+  registered routed kernel selects route-direct vector W13/W2 for contiguous
+  M1..M16 and otherwise the grouped MFMA implementation
+  (`tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/gluon/mxfp4.py:125-190`).
+  Route-direct avoids sorting and per-expert 64-row padding, preserves the BF16
+  W2 boundary, and combines original top-k slots directly
+  (`tokenspeed-kernel-amd/python/tokenspeed_kernel_amd/ops/gfx950/moe/mxfp4/situ_decode.py:26-36,72-433`);
+  grouped MFMA intentionally pads each expert to 64 rows
+  (`.../situ_grouped.py:45-48,187-412`). Every redesign must retain these as
+  paired controls and justify changes to routing, weight layout, tile shape,
+  reduction, and launch separately. Do not call a new megakernel win when it
+  merely compares against an untuned generic fallback.
+- **Triton gfx950 Gluon -- transfer with qualification:** the general
+  `warp_pipeline_stage` test compiles directly for gfx950 and checks the emitted
+  `s_setprio` schedule
+  (`/home/ericfeng/distributed/triton/third_party/amd/python/test/test_warp_pipeline_gfx9.py:14-17,20-33,59-85`).
+  CDNA4 Gluon exposes direct global/buffer-to-LDS async copy, commit/wait groups,
+  and relaxed post-wait LDS loads; the runtime test requires `buffer_load...lds`
+  or `global_load_lds` plus `vmcnt(0)`
+  (`/home/ericfeng/distributed/triton/python/test/gluon/test_core.py:1669-1703`;
+  `.../experimental/gluon/language/amd/cdna4/async_copy.py:16-43,75-103,135-179`).
+  These are source precedents, not results from the qualified compiler: the
+  test files request gfx950 and define runtime checks, but we have not executed
+  them in the qualified stack. With the inherited repository `PYTHONPATH` the
+  venv resolves this source tree; with that override removed it resolves a
+  substantively different packaged Triton
+  (`tokenspeed-triton 3.8.10.post20260721`). After the top-of-main refresh,
+  build or bind a worktree-local compiler and record imported Python and native
+  extension provenance before compiling or timing. Make these the first
+  gfx950 K-loop controls, but promote only emitted TTGIR/LLVM/AMDGPU, loaded
+  resources, normal timing, and ATT issue overlap. The visually similar
+  `_cdna5.py` TDM/WMMA examples are guarded for gfx1250, not gfx950; source
+  presence is not target qualification.
+- **Triton gfx950 scheduling limits:** the AMD warp-pipeline lowering groups
+  four wave64 subgroups, so two simultaneously live groups require an
+  eight-subgroup/512-thread workgroup
+  (`third_party/amd/lib/TritonAMDGPUToLLVM/ConvertWarpPipeline.cpp:1018-1037`).
+  It phase-shifts the same subgroups through stages; it does not provide fixed
+  loader/consumer specialization. The pipeliner requires at least two stages
+  and inserts waits/barriers (`WarpPipeliner.cpp:208-398`). Pair an
+  eight-subgroup staged arm with an ordinary-load control and inspect dynamic
+  waits, barriers, set-priority cadence, and ATT; lowering success alone is not
+  overlap evidence.
+- **Triton gfx950 compute/layout limits:** CDNA4 direct-to-LDS shares VMEM
+  completion with ordinary operations, so unrelated loads can lengthen its
+  waits; prefer coalesced 128-bit access and test buffer versus 64-bit global
+  addressing. Scaled MFMA exposes native square 16x16x128 and 32x32x64 shapes
+  (`third_party/amd/lib/TritonAMDGPUTransforms/MfmaGroup.cpp:262-268`), making
+  it a strong regular TP8/dense B16 candidate but only a measured
+  counterfactual for B8 or sparse expert rows below 16. Layout conversion can
+  emit permutations, LDS traffic, barriers, and pressure; require
+  TTGIR/LLVM/ISA proof rather than assuming it is free. No complete pure-gfx950
+  sparse-MoE persistent precedent was found, so the new core is a composition
+  of independently qualified mechanisms rather than a port.
+- **Reject CDNA5 mechanisms as gfx950 precedents:** the local `*_cdna5.py`
+  examples use gfx1250-only TDM, WMMA-v3, multi-workgroup launch, and true
+  `warp_specialize`. Their task/scheduler algebra may transfer only after TDM
+  becomes CDNA4 buffer/global-to-LDS, WMMA becomes MFMA-v4, and specialization
+  becomes a separately proved gfx950 phase or manual-subgroup protocol. Start
+  with ordinary launch; persistent scheduling and XCD remap require measured
+  placement/residency and phase-local A/B tests.
+- **`comms-notes` -- transfer and reject:** retain payload store -> system
+  release -> per-consuming-workgroup acquire, symmetric byte-offset pointer
+  translation, and separate local/cross-XCD/cross-GPU visibility domains
+  (`/home/ericfeng/distributed/comms-notes/building-megakernels/README.md:314-335`).
+  Readiness alone does not make a reusable payload safe: a fast producer can
+  overwrite generation N while a peer still reads N, so a completion plane or
+  separately proved ring-lifetime protocol is mandatory
+  (`/home/ericfeng/distributed/comms-notes/kimi2.5comms.txt:96-124`). Cache
+  modifiers and XCD placement remain performance policy, never publication.
+  Reject the notes' fixed EP ownership, scheduler constants, and prototype
+  residency assumptions when deriving clean TP8 or new EP cohorts.
+- **Standalone Iris -- transfer and reject:** its fused matmul/all-reduce path
+  publishes an auxiliary tile with a system-release exchange before one-shot
+  or owner-scattered two-shot reduction
+  (`/home/ericfeng/distributed/iris/iris/ops/matmul_all_reduce.py:125-144`;
+  `/home/ericfeng/distributed/iris/iris/mem/triton/context.py:734-840`). Retain
+  direct peer addressing, destination-local-first one-shot accumulation, and
+  owner/scatter as a separately qualified B8/B16 option. Do not infer a
+  reusable persistent protocol: these examples have a readiness flag but no
+  distinct completion plane, and owner/scatter changes the qualified
+  destination-local arithmetic.
+- **CDNA4 architecture -- constrain, do not predict:** one device has eight
+  XCDs and up to 256 compute units; pairs of compute units share a 64 KiB
+  instruction cache, each compute unit has 160 KiB LDS at 256 bytes/clock and
+  a 32 KiB L1, and each XCD has a coherent 4 MiB L2
+  (`/home/ericfeng/distributed/amdgpu-isa-manuals/cdna4/whitepaper.md:35-45,77-91`).
+  The ISA notes define the physical `XCC_ID` and the vector load/store/atomic
+  scope, non-temporal, writeback, and invalidate controls
+  (`/home/ericfeng/distributed/amdgpu-isa-manuals/cdna4/README.md:411,1094,2823-2873`).
+  Retain explicit physical IDs and scopes for measurement and correctness; do
+  not treat cache-control bits as publication or a performance guarantee.
+  Peak 8 TB/s HBM and nominal LDS/register capacity are upper bounds, not proof
+  of useful residency, load interleaving, or XCD affinity; loaded occupancy,
+  normal timelines, and decoded ATT decide.
+- **Mixture-of-Kittens -- transfer:** pull-style direct payload reads,
+  medium-grained readiness, explicit producer/consumer roles, multiple loader
+  stages, deterministic task order, and early ring-slot reuse
+  (`/home/ericfeng/distributed/megakernels/mixture-of-kittens/deep-dive.txt:53-57,68-77,168-187,221-253`).
+  Its closest Iris analogue is the seven-stage combine: it precomputes peer
+  addresses
+  (`/home/ericfeng/distributed/megakernels/mixture-of-kittens/csrc/mok_megakernel.cuh:530-543`),
+  issues every valid asynchronous load (`:549-570`), then consumes stages in
+  order (`:572-589`). Its GEMM path
+  separately uses eight 32-lane NVIDIA warps (256 threads, unlike our eight
+  64-lane subgroups), a six-stage input ring, and dedicated loader/consumer
+  semaphores (`:20-60,1273-1376,1542-1552`).
+  **Do not transfer:** Blackwell CLC/TMA/TMEM/clusters, training minibatches, or
+  token dispatch/combine that K3 TP8/EP8 does not need at B1.
+- **Iris GPT-OSS -- transfer:** phase fusion when the consumer can use a value
+  directly from registers, removal of barriers for deferred residuals, and
+  pipelined K loops. It measured 180 workgroups faster than 256 because cheaper
+  barriers still filled GEMVs
+  (`/home/ericfeng/distributed/megakernels/iris/examples/33_gpt_oss_megakernel/gpt_oss_120b_quantized_megakernel.py:53-56`),
+  fuses norm into projections and cache append into attention (`:191-231`),
+  and uses a staged K loop
+  (`.../common/gemv_fp4.py:96-125`). **Probe first:** smaller P and staged K.
+  It is a four-subgroup P180 source precedent, not a loaded-resource proof: the
+  checkout records neither an explicit LDS reservation nor an admitted
+  occupancy artifact.
+  **Do not copy blindly:** redundant top-k in every workgroup (`:255-259`) or a
+  single relaxed publisher without transitive payload publication.
+- **Fleet -- transfer:** CDNA4 small-tile GEMM pipelines, XCD-local rank
+  discovery, M-fast/windowed traversal for B>1, and measured split-K controls
+  (`/home/ericfeng/distributed/megakernels/fleet-chiplet-megakernel/include/mirage/persistent_kernel/tasks/mi300/gang_linear_mi300.cuh:23-76`).
+  **Rejected policy:** one expert at a time per XCD
+  (`.../gang_moe_linear_mi300.cuh:16-28`) is slower for our integrated B1
+  shapes. Preserve its pipeline/tile ideas without preserving that affinity.
+  Fleet uses four CDNA subgroups and roughly 60 KiB LDS, but its named
+  `cp_async` path is a synchronous buffer load plus workgroup fences, not a
+  CDNA4 asynchronous-copy precedent. Its MI350 schedule also has 240 workers
+  plus eight separate scheduler workgroups, so it is not monolithic-P240
+  residency evidence.
+  Cross-XCD or XCD-local split-K (`.../persistent_kernel.py:1468-1551`) remains
+  a later TP8/dense-phase probe because it adds workspace and atomics.
+
+### Evidence index
+
+- Historical paired d5dad rejection:
+  `profile_default/kimi-k3-megamoe-final-d5dad-20260814T120409Z/comparison.json`.
+- Cooperative stream diagnosis:
+  `profile_default/kimi-k3-megamoe-same-stream-valid-sdk-stack0-20260814T193615Z/analysis.md`.
+- Ordinary-launch full-model trace:
+  `profile_default/kimi-k3-megamoe-ordinary-overlap-on-valid-sdk-stack0-20260814T203803Z/analysis.md`.
+- Ordinary rank-zero executable/ISA control:
+  `profile_default/kimi-k3-heavy-noncoop-paired-final-20260814TomdZ8F/paired-code/ordinary.{hsaco,amdgcn}`
+  (`.text` 80,384 bytes; assembly file SHA-256 `d49bea71...`).
+- Fused-path decoded ATT controls:
+  `profile_default/kimi-k3-main-04bc0864-graph-20260813T062945Z/att/per-kernel/`
+  (exact B1 input/W2/final; W13 wave behavior is M16-only).
+- Phase-clock pre-dispatch object-gate failure:
+  `profile_default/kimi-k3-megamoe-phase-bounded-20260814T225021Z/manifest.json`
+  (zero MegaMoE dispatches; cleanup evidence in the adjacent
+  `cleanup-release.json`; executable/debug distinction in
+  `control-identity-classification.json`).
+- Phase-clock final host-only cache plan:
+  `profile_default/kimi-k3-megamoe-phase-corrected-20260814T231532Z/final-retry-cache-plan.json`
+  (SHA-256 `a669386f...`; 57-file qualified-cache tree digest `a28a4e8b...`;
+  verifier passed; zero MegaMoE dispatches and no phase timing).
+- No-timeout paired rank-zero probe:
+  `/home/ericfeng/distributed/megamoe-minimal-sync-r0-hF3Jy5KD/paired-report.json`.
+- Runtime-loop rank-zero compile report:
+  `/home/ericfeng/distributed/megamoe-runtime-peer-loop-r0-P9bfd0uc/report.json`.
+- Subgroup/pipeline/grid probes:
+  `/home/ericfeng/distributed/pipeline-grid-artifacts/compile-smoke-20260814/`.
+- Rotating-layer cold probe:
+  `/home/ericfeng/distributed/megamoe-rotating-phase0-final-xJwUUPBE/report.json`.
+- World-eight Iris batching probe:
+  `/tmp/megamoe-xcd-batch-world8/staged-retry-20260814/`.
+- Integrated XCD A/B/D probe:
+  `/tmp/megamoe-full-body-abd-physical2-final.9MhwxZ/full-body-a-b-d-rank0-summary.json`
+  (SHA-256 `408bec51...`; rank-zero locally aliased Iris, not EP8 communication
+  evidence).
+- Iris payload-preload depth sweep:
+  `/tmp/megamoe-iris-preload-physical2-final.O5sQc7/` (summary SHA-256
+  `a229c937bcee961bd999ca7e82f8edc56eb3833ac6ad6247db5717b69a2e28e1`).
+- Static per-route W13 event model:
+  `/tmp/kimi-k3-route-pipeline-report.json` (report SHA-256
+  `33e688db1fc88a402792f70372abcfaa466902a3646ebf3d01d3477ec72027bb`;
+  72 host tests passed); generator:
+  `/home/ericfeng/distributed/.worktrees/tokenspeed/agent/megamoe-route-pipeline/tools/megamoe/kimi_k3_route_pipeline_probe.py`.
+- Routed-TP8 first compiler artifact:
+  `profile_default/kimi-k3-routed-tp8-p1-20260814T2136Z-I0ket1/`.
+- Routed-TP8 exact-N32 layout failure:
+  `profile_default/kimi-k3-routed-tp8-p1-gpu2-20260814TXXXXXXZ-yYZfUD/`.
+- Clean-sheet routed-EP8 design/oracle (signed commits
+  `8317e6f1e132dca27d5c5c95ad1ec48d93385d3b` and
+  `8129173ab75ce473a04e495f1a55db14af5f0a80`; 12 host oracle cases; no
+  compile or GPU run):
+  `/home/ericfeng/distributed/.worktrees/tokenspeed/agent/megamoe-ep8-cleansheet/docs/design/kimi-k3-megamoe-ep8-cleansheet.md`
+  (`f7088beb1b02cc043ea55de505d5f2b81a87f06210f48b1a3e2bf0aee8581f2b`),
+  `tools/megamoe/kimi_k3_ep8_cleansheet_oracle.py`
+  (`d5a702f79dd6cb872c03aae5c8ee8799b0b05aa5d9d0f9a0171cd7fab593b722`),
+  `test/cli/test_kimi_k3_ep8_cleansheet_oracle.py`
+  (`a69e963bc12863c94f0c21d9fdaa884acc3855752fc007702392a6f23b6bb17b`),
+  and `tools/megamoe/README.md`
+  (`10a52a59265542be2e66f16f93d787a5c793e3ed8727ac676857edcc79c93e30`).
+  The generated `/tmp/kimi_k3_ep8_cleansheet_oracle-v2.json`
+  (`b9825be6c26ffcf745e1fb1edbf80a445059fdfcde41fff87338b60ceadecd15`)
+  is ephemeral, not a repository artifact.
+- Clean-sheet routed-TP8/EP1 design/oracle (signed commit
+  `19e30183469abc87b6823d25c8c3cdd7b02769f7`; 273 host checks; no compile
+  or GPU run):
+  `/home/ericfeng/distributed/.worktrees/tokenspeed/agent/megamoe-tp8-cleansheet/docs/design/kimi-k3-tp8-cleansheet.md`
+  (`fa812161472c878b829966ae05e088def2f74e58bd3d87d0b39658185de0c32f`),
+  `docs/design/probes/kimi-k3-tp8-cleansheet-oracle-20260814.json`
+  (`64c3616bfdb3d58567d5e6f15c15a4f9254b8fefe71ba3e3dd1f42af77867c04`),
+  and `tools/megamoe/verify_kimi_k3_tp8_cleansheet_oracle.py`
+  (`9af3b08fe39e548bb001c45ee0d6d37a804d426032a195ed0381f87f6de4d92e`).
+- **Integration warning:** EP initial commit `8317e6f1` contains only its four
+  intended files. EP corrective commit `8129173a` and TP commit `19e30183`
+  each also contain 21 pre-existing files reformatted by the required
+  repository-wide pre-commit run. After refreshing main, transplant only the
+  intended design/oracle/test/README artifacts; do not cherry-pick either
+  formatter-swept commit wholesale.
+- Initial EP8-versus-TP8 hypotheses:
+  `ep8vstp8.txt` (SHA-256
+  `c6e75d78be409f34df2485afca39474e83ff19b5ef2f337e1d70d34283ee8b85`;
+  hypothesis input only; all retained shapes, ownership, and numerical claims
+  were re-derived from source).
+- LDS/grid compile-load matrix:
+  `/home/ericfeng/distributed/.worktrees/tokenspeed/agent/megamoe-lds-grid-resource/profile_default/kimi-k3-resource-grid-compile-load-20260814T221720Z/matrix-manifest.json`.
+- Legal 64 KiB loaded-resource follow-up:
+  `/home/ericfeng/distributed/.worktrees/tokenspeed/agent/megamoe-lds-grid-resource/profile_default/kimi-k3-resource-grid-64kib-followup-20260814T222459Z/followup-manifest.json`.
+
+### External TP evidence and memory decision
+
+- **External evidence, not our qualification:** issue
+  [#56](https://github.com/raikonenfnu/tokenspeed/issues/56) reports a
+  numerically correct routed-TP arm that improves B8/B16 over issue
+  [#55](https://github.com/raikonenfnu/tokenspeed/issues/55) but loses B1 by
+  13.2% (51.17 versus 58.98 tok/s), consistent with two rendezvous dominating
+  one-token decode. Issue
+  [#53](https://github.com/raikonenfnu/tokenspeed/issues/53) is shape/mechanism
+  evidence, not a production-correct topology comparison.
+- **Verified derivation:** padding logical TP W2 K=384 to physical K=512 plus
+  scale padding costs 20,089,667,584 bytes (18.71 GiB) per rank across 896
+  experts and 92 layers, explaining most of the reported roughly 21 GB memory
+  loss. The MegaMoE TP ABI therefore stays linear K384 or uses a tail-capable
+  preshuffle; physical K512 is not accepted merely to satisfy a package tile.
+
+### Promotion and anti-loop rules
+
+- Compile and retain every specialization before timing; reject late JIT.
+- Require bitwise equality at the defined BF16/FP32 materialization boundaries,
+  exact task census, protocol generations, zero fatal/diagnostic state, and
+  no scratch/private/VGPR spill before reading performance.
+- Serving correctness is batch-specific. B1 requires one successful
+  4096-to-1024 request and exact prompt plus normalized-completion equality
+  between baseline and candidate. B8/B16 require exactly 8/16 successful
+  requests, every request 4096-to-1024, an identical prompt multiset, all
+  completion hashes retained but not required equal, and a separate bitwise
+  M-specific kernel/model-boundary oracle. In every batch, logs and loaded code
+  must positively prove that MegaMoE—not the
+  `hidden_states.shape[0] != 1` fused fallback—executed.
+- Compare hot and rotating-92 cold pointers; use balanced AB/BA or cyclic arm
+  order and report p50/p95 plus rank maximum.
+- A source/ISA reduction in atomics, barriers, code size, or registers is not a
+  win until the integrated timing wins. Conversely, do not reject larger
+  register/LDS use solely for exceeding an earlier observed maximum.
+- Resource metadata is necessary, not sufficient. For every serious winner,
+  capture a normal all-rank timeline, choose the slowest rank, then decode ATT
+  for representative early, middle, and tail tasks plus at least one
+  workgroup from every XCD. Inspect active and resident waves, issue-slot
+  utilization, VALU and MFMA overlap, VMEM/LDS latency hiding,
+  dependency-chain length, memory clauses, `s_waitcnt`/hazard spacing, barrier
+  bubbles, instruction-cache effects, and per-XCD/compute-unit balance. Lower
+  VGPRs or higher nominal occupancy is a loss when it serializes loads or adds
+  scheduler/wait bubbles, as the rejected explicit pipeline already
+  demonstrated.
+- Qualify in order: host/source oracle -> rank-zero compile/ISA -> bounded
+  numerical microprobe -> full-body rank zero -> world eight skew/reuse/fail
+  stop -> matched unprofiled output-throughput benchmark at B1, B8, or B16.
+- Finish the current frozen-base research round before pulling top-of-main.
+  Then rebase/fix every surviving branch and rerun its source, compiler,
+  resource, and numerical gates; stale code-object hashes are never carried
+  across that refresh.
+- The shared qualified venv is editable-wired to the primary checkout, and its
+  scheduler import finder outranks `PYTHONPATH`. A refreshed-worktree benchmark
+  must use a dedicated cloned venv with all four repository editables rebound
+  using `--no-deps`, then prove every Python module and loaded extension comes
+  from that worktree before startup.
+- Fresh B1/B8/B16 runs use three repetitions in a balanced batch order and
+  report median, range, MAD, CV, TTFT, and TPOT. Spread above 6% or CV above 3%
+  triggers two more repetitions; a candidate win inside observed arm variance
+  must repeat with reversed flag-on/flag-off order.
+- Do not rerun a rejected arm unless a new experiment isolates the prior loss
+  or changes a single causal mechanism.
+
 ## 1. Outcome and boundaries
+
+Sections 1 through 17 below document the current ordinary-P240 control and its
+qualification contract. They are not architectural requirements for the
+clean-sheet EP8 or TP8 redesign lanes. A new design may use task queues,
+descriptor rings, dedicated communication/compute cohorts, a revised
+workspace/API, or a bounded kernel split; it must define and qualify its own
+equivalent numerical, publication, progress, and fail-stop contracts.
 
 When explicitly enabled for qualification, the experiment replaces the
 complete six-launch batch-size-one Kimi K3 MoE sublayer with one static
@@ -40,7 +739,7 @@ There is no task queue, descriptor interpreter, work stealing, or permanently
 reserved scheduler compute unit. Runtime expert IDs and the number of routes
 owned by a rank remain data, not a dynamic scheduling algorithm.
 
-The qualified candidate envelope is deliberately narrow: physical tensor row
+The current control's qualified envelope is deliberately narrow: physical tensor row
 count `M=1`, gfx950, TP8/EP8 with MoE TP1 and EP8, 896 experts split
 contiguously as 112 per rank, top-16, BF16 activations, the native plan's
 linear MXFP4 checkpoint layout, and Iris producer-direct communication.
@@ -70,12 +769,12 @@ The matched baseline is the checked-in artifact
 - batch-size-one median TPOT: 16.72 ms.
 
 The exact server and load-generator commands are in the artifact's
-`COMMANDS.md`. The historical arm remains untouched. Both contemporaneous arms
-reuse every server/eval argument but add the same documented system-ROCr preload
-and the same cooperative-ABI-correct Triton dependency; between those two arms,
-only the experimental MegaMoE switch changes. Uninstrumented runs are the
-throughput authority. Perfetto, rocprofv3, and ATT are diagnostic and must not
-be used as throughput measurements.
+`COMMANDS.md`. The historical arm remains untouched. A valid contemporaneous
+comparison reuses every server/eval argument and the same qualified ROCr,
+compiler, and profiler-interposition environment; between paired arms only the
+experimental MegaMoE switch may change. Uninstrumented runs are the throughput
+authority. Perfetto, rocprofv3, and ATT are diagnostic and must not be used as
+throughput measurements.
 
 Verified normal-trace medians for the six existing MoE launches are
 approximately 19.36, 5.20, 12.72, 9.00, 19.36, and 12.40 microseconds. ATT
@@ -84,18 +783,16 @@ is not representative. The six normal medians sum to about 78 microseconds per
 MoE layer. K3 has 92 MoE layers, making launch removal material at one-token
 decode even if arithmetic bandwidth is unchanged.
 
-The current verified call path is:
+The current verified fused-control call path is:
 
 ```text
-KimiLinearMoE.forward (python/tokenspeed/runtime/models/kimi_k3.py:1368)
-    -> _forward_fused_decode_pipeline (:1320)
-        -> latent_moe_input_projections (:1337)
-        -> TopK.forward (:1345)
-        -> latent_moe_expert_shared_all_reduce (:1346)
-            -> acquire_all_reduce_outputs
-            -> latent_moe_expert_shared
-            -> IrisAllReduce.all_reduce_symmetric
-        -> LatentMoELayer.finalize_output (:1362)
+KimiLinearDecoderLayer.forward (python/tokenspeed/runtime/models/kimi_k3.py:2096)
+    -> KimiLinearMoE.forward (:1684; called at :2234)
+        -> _forward_fused_decode_pipeline (:1636; selected at :1714-1716)
+            -> latent_moe_input_projections (:1653)
+            -> TopK.forward (:1661)
+            -> latent_moe_expert_shared_all_reduce (:1662)
+            -> LatentMoELayer.finalize_output (:1678)
 ```
 
 The corresponding GPU sequence is:
@@ -258,6 +955,17 @@ TMA, TMEM, clusters, warpgroup roles, or NVLink-specific dispatch. Its public
 megakernel also excludes routing setup and some epilogue work, so it is not the
 scope definition for this experiment.
 
+The narrow source-level transfer is its combine pipeline, not its training
+topology.
+`/home/ericfeng/distributed/megakernels/mixture-of-kittens/csrc/mok_megakernel.cuh:530-589`
+computes a batch of peer addresses,
+issues seven independent loads, and then consumes the stages in deterministic
+order. MegaMoE tests the same issue/consume separation inside the existing
+subgroup-zero Iris reducer at depths 1/2/4/8, preserving exact acquires and
+rank-ascending arithmetic. MoK's six-deep GEMM producer/consumer ring instead
+depends on TMA, clusters, and register-specialized warpgroups; it is motivation
+for a CDNA4 asynchronous-copy probe, not source to port literally.
+
 ### Iris GPT-OSS megakernel
 
 Transfer the idea of a per-worker compiled phase program and direct symmetric
@@ -267,12 +975,33 @@ later system release from `pid==0`. MegaMoE uses an acquire/release RMW handoff
 that makes the communication workgroup a transitive publisher, and every
 consumer workgroup performs its own acquire.
 
+Two implementation details are directly testable. Its `NUM_WG=180` was chosen
+because a smaller resident grid reduced barrier cost while retaining enough
+GEMV parallelism, so MegaMoE must sweep smaller grids as well as proposed
+larger grids. Its FP4 GEMV uses `tl.range(..., num_stages=NSTAGES)` with a
+default depth of three to overlap the next K tile's loads with the current dot.
+The analogous MegaMoE experiment uses Gluon's native CDNA4 asynchronous-copy
+commit/wait groups and must classify actual waitcnt/barrier changes. Its fused
+norm/projection and register-use examples transfer only where the concrete K3
+producer and consumer are the same workgroup; they do not justify deleting a
+cross-workgroup publication edge.
+
 ### Fleet
 
 Transfer observation of `HW_REG_XCC_ID`, construction of XCD-local worker rank
 and population, contiguous XCD-local tile ranges, and hierarchical completion.
 Do not reserve one scheduler workgroup per XCD. Fleet's scheduler queues are
 separable from its locality formulas.
+
+Fleet's `gang_moe_linear_mi300.cuh` assigns one expert at a time to each XCD
+and has all local workers cooperate to protect its weights in L2. That policy
+is rejected for current K3 B1: wider W13 XCD fanout won monotonically in the
+isolated probe, and both distributed-role variants lost in the integrated
+full-body probe. Retain the small 16x64x{128,256} tiles, CK load/compute
+pipeline, and B>1 M-fast windowed traversal as independent mechanisms. Its
+cross-XCD and XCD-local split-K variants remain controls for TP8 or dense
+projections only after accounting for their extra workspace, atomics, and
+finalization event.
 
 Fleet's cache prose also needs a CDNA4 correction. On a multi-L2 CDNA4 device,
 device-scope vector accesses bypass XCD L2. The source-level initial streaming
@@ -297,15 +1026,16 @@ The current offline-qualified, deployment-disabled specialization is:
 - 240 workgroups;
 - eight 64-lane subgroups per workgroup;
 - `waves_per_eu=2`;
-- `launch_cooperative_grid=True`;
+- `launch_cooperative_grid=False`;
 - one explicitly touched 128 KiB LDS residency allocation per workgroup; and
 - no private-memory/scratch instructions or VGPR spills. LLVM's distinct
   SGPR-to-VGPR lane save/restore count is recorded and tuned separately.
 
-Grid sizes 227 through 239 remain future tuning candidates. Each requires its
-own static schedule, workspace/admission review, loaded-code inspection, and
-rank-specialized code-object hashes; the current raw ABI and admission accept
-only 240.
+The active test-only grid sweep is `P in {224,226,232,240,248,256}`. Logical
+work remains phase zero 240, shared/final 224, expert 226, and Iris 21, so every
+grid requires an exact loop/census oracle, workspace/admission review,
+loaded-code inspection, and rank-specialized code-object hashes. The current
+raw ABI and production admission accept only P240.
 
 The qualified heavy binaries allocate 106 SGPRs and 156 VGPRs. LLVM reports 40
 SGPR-to-VGPR lane-save slots on every rank; the emitted ISA uses
@@ -323,18 +1053,19 @@ constraint, not residency proof. The touched LDS allocation makes a second
 KiB LDS. It is a residency reservation first; compute may reuse parts of it only
 if the final compiled dynamic-LDS requirement remains at least as large.
 
-Cooperative launch is a deployment-gated prerequisite. The server command must
-preload `/opt/rocm/lib/libhsa-runtime64.so.1` before Python imports PyTorch. An
-enabled startup uses `dladdr` to require that `hsa_init`, `hsa_shut_down`, and
+Ordinary launch metadata is a deployment-gated requirement. The existing
+process-isolation preflight remains intact: the server command must preload
+`/opt/rocm/lib/libhsa-runtime64.so.1` before Python imports PyTorch. An enabled
+startup uses `dladdr` to require that `hsa_init`, `hsa_shut_down`, and
 `hsa_signal_store_screlease` resolve to the pinned `/opt/rocm` object, checks its
 realpath/build ID/hash, and requires exactly one loaded `libamdhip64.so`, the
 PyTorch copy. PyTorch's RPATH can still map its bundled HSA DSO as a second,
 non-resolving object; that dual mapping is a recorded experimental residual
 risk, not grounds to mistake symbol provenance. Changing `LD_PRELOAD` inside an
-initialized process is too late. Triton's dynamically loaded
-`hipModuleLaunchCooperativeKernel` declaration must also match the installed HIP
-ten-argument ABI; the stale extra `void **extra` declaration is rejected by the
-dependency preflight.
+initialized process is too late. Device cooperative capability and Triton's
+ten-argument `hipModuleLaunchCooperativeKernel` ABI remain frozen preflight
+fingerprints even though MegaMoE now rejects cooperative launch metadata. This
+deliberately changes only launch routing, not the qualified runtime envelope.
 
 This requirement comes from a reproduced lifecycle distinction on the target
 machine. With PyTorch's bundled HSA object, a correct cooperative barrier
@@ -351,8 +1082,8 @@ The reproducible source and pinned result are
 A whole-grid wait is admitted only when the actual loaded specialization
 satisfies all of these machine-checked and runtime conditions:
 
-- the device reports cooperative-launch support and the loaded launch metadata
-  records the cooperative option;
+- the frozen runtime preflight still reports cooperative-launch support, while
+  the loaded MegaMoE metadata records the required ordinary option;
 - `compiled.metadata.shared` and the actual launch `sharedMemBytes` argument are
   at least 131072 bytes. Gluon LDS is dynamic and a normal AMD code object can
   report `group_segment_fixed_size == 0`; if static LDS is later added, the
@@ -361,8 +1092,10 @@ satisfies all of these machine-checked and runtime conditions:
   loaded `hipFunction_t` with block size 512 and
   `compiled.metadata.shared`, reports exactly one resident workgroup per active
   compute unit;
-- grid size is no larger than loaded occupancy times the 256 active compute
-  units, so HIP can admit the cooperative grid;
+- admission records the actual runtime compute-unit count and requires grid
+  size to be no larger than loaded occupancy times that count. The qualified
+  tuple is `1 * 256 = 256 >= 240`; capacity is necessary but is not a general
+  ordinary-scheduler contract;
 - VGPR, SGPR, LDS, private-segment, scratch-instruction, VGPR-spill, and
   SGPR-to-VGPR lane-spill metadata are recorded. Private segment, flat scratch,
   scratch instructions, and VGPR spills must be zero; scalar lane saves must
@@ -372,12 +1105,13 @@ satisfies all of these machine-checked and runtime conditions:
   execution stream into graph warmup/capture and later eager/replay dispatch,
   and all 92 plan views share a host owner that rejects a public decode call on
   another stream before raw dispatch;
-- eager and graph capture/replay both retain cooperative launch semantics in
-  the offline heavy-binary qualification;
-- before its hashes are admitted, the actual heavy binary passes
-  watchdog-protected eager and captured/replayed generation-barrier stress,
-  with all 240 program IDs completing and all eight XCDs observed on every
-  repetition, not merely a lightweight surrogate; and
+- eager and graph capture/replay retain ordinary launch semantics, with the
+  heavy grid on the marker/replay stream rather than a cooperative side stream;
+- the ordinary P240 surrogate passes 1,001 generations with exactly 30
+  workgroups on each XCD per generation, while the rank-zero exact heavy body
+  passes eager and captured/replayed numerical and protocol checks under a
+  watchdog. EP8 peer-memory qualification remains required before the false
+  implementation marker can change; and
 - any barrier, topology, or Iris fault poisons the plan and aborts the process;
   it never falls back after another rank may have entered the protocol.
 
@@ -392,15 +1126,15 @@ litmuses. A change to the compiler stack, source, emitted code, or runtime
 envelope invalidates qualification and requires the offline gates to be rerun
 before new hashes are pinned.
 
-At one workgroup per compute unit, a grid above 224 forces use of all eight
-32-compute-unit XCDs because HIP admits all 240 cooperative workgroups
-concurrently and the retained LDS caps residency at one per compute unit. The
-surrogate validates this mechanism, not the heavy binary. Offline qualification
-rejects a candidate that fails stress; runtime startup rejects a preflight,
-loaded-code, rank-consensus, or eager-warmup failure. Ordinary launch is not an
-admitted fallback. A future ordinary-launch design would require
-continuation/reassignment; an `atomic_poll` timeout alone is only the fail-stop
-path from section 9, not a nonblocking progress protocol.
+At one workgroup per compute unit, P240 has 16 spare resident slots on the
+256-compute-unit device and exceeds the 224-compute-unit capacity of seven
+XCDs. The ordinary surrogate observed exactly 30 workgroups on every XCD in
+every one of 1,001 generations, but ordinary launch does not promise this as a
+general scheduling contract. Offline qualification therefore keeps a process
+watchdog; runtime startup rejects a preflight, loaded-code, rank-consensus, or
+eager-warmup failure. Cooperative metadata is rejected rather than retained as
+a fallback. An `atomic_poll` timeout is only the fail-stop path for a resident
+workgroup; it cannot rescue a workgroup that the scheduler never made resident.
 
 At entry, every workgroup reads XCC ID once with:
 
@@ -640,8 +1374,8 @@ and the whole workgroup rendezvouses before using its result. In particular, no
 subgroup conditionally skips `gl.atomic_poll`, whose AMD lowering includes a
 workgroup rendezvous.
 
-Every wait remains finite even under the admitted cooperative launch so a
-software, topology, or peer failure cannot spin forever.
+Every wait entered by a resident workgroup remains finite under the admitted
+ordinary launch so a software, topology, or peer failure cannot spin forever.
 `gl.atomic_poll(..., timeout_ns=...)` returning false is a fail-stop escape, not
 permission to continue. One-shot system-release exchanges publish the same
 nonzero invocation generation to every rank's symmetric fatal slot; this avoids
@@ -659,7 +1393,7 @@ workgroup barrier because all subgroups may consume the guarded payload. The 15
 Iris system polls instead retain `atomic_poll`'s compiler-owned invalidation and
 rendezvous with no source ACK or second barrier; all dependent payload loads are
 restricted to subgroup zero. An Iris owner checks sticky fatal state before
-publishing a normal ready generation. Thus all cooperative workgroups leave an
+publishing a normal ready generation. Thus all resident workgroups leave an
 abandoned generation and the kernel can terminate.
 
 The symmetric fatal epoch is process-lifetime sticky. Before its first scratch
@@ -673,31 +1407,43 @@ healthy layer this removes that redundant sequence from all 240 entry guards
 and the 21 Iris-owner guards. This entry guard is required because all 92
 captured layer nodes share one workspace and lane; nodes already enqueued after
 the node that detects a fault must not straddle counter generations or
-overwrite their distinct outputs. After all already-enqueued nodes have
-self-aborted, the forced non-overlap host path rejects the sampled result and
-forbids another graph replay. A subsequent invocation is never used as an
-in-kernel recovery mechanism.
+overwrite their distinct outputs. The overlap scheduler may already have
+enqueued the next replay on the same serialized model execution stream. Those
+nodes self-abort, and each in-flight result has a distinct pinned fatal-epoch
+mirror. The host rejects the failed sampled result before token commit; a
+subsequent invocation is never used as an in-kernel recovery mechanism.
 
 The resulting output is poisoned and must never be consumed as a valid token.
 On failure, eager startup synchronizes, reads the fatal epoch, and gathers the
 local eight-word diagnostic record. Captured decode instead enqueues only the
 graph-stable fatal epoch through the sampled-token result path. A nonzero value
-raises before token commit or another replay; the normal result path does not
-copy the full diagnostic record. The serving supervisor must then terminate
-and restart the entire eight-rank job. Automatic coordinated restart is outside
-this repository's implementation, and diagnostics beyond the fatal generation
-must be collected out of band after abort. No in-process path reuses counters,
-continues the request, or enters the existing collective. This does not make
-the schedule nonblocking or semantics-preserving on failure; it converts a
-protocol failure from an unbounded GPU/rank hang into a bounded fatal failure.
+raises before token commit; the normal result path does not copy the full
+diagnostic record. Normal overlap may have enqueued one later replay before this
+check, but sticky fatal state prevents its MegaMoE nodes from advancing shared
+state and its result is never committed. The serving supervisor must then
+terminate and restart the entire eight-rank job. Automatic coordinated restart
+is outside this repository's implementation, and diagnostics beyond the fatal
+generation must be collected out of band after abort. No in-process path reuses
+counters, continues the request, or enters the existing collective. This does
+not make the schedule nonblocking or semantics-preserving on failure; it
+converts a protocol failure from an unbounded GPU/rank hang into a bounded fatal
+failure.
 
 Startup eager warmup synchronizes and checks fatal state directly. Captured
 decode carries the graph-stable fatal value through the existing sampled-token
 completion/result path: before the scheduler accepts the sampled token, it
 checks the associated fatal generation and rejects the result on any nonzero
 value. The check is ordered after graph completion and adds no independent
-per-token device synchronization. A poisoned graph cannot enqueue another
-decode replay.
+per-token device synchronization. At most the overlap loop's already-issued
+successor can be in flight; sticky fatal state makes its MegaMoE nodes return
+without touching application state.
+
+`TOKENSPEED_K3_MEGAMOE_FATAL_EPOCH_D2H=0` is a profiling-only discriminator
+that removes the per-result scalar copy and host check while leaving the device
+sticky-fatal protocol intact. It is not a serving configuration: a fault would
+no longer be surfaced before token commit. Any timing collected with it must be
+reported separately and retained only if the same healthy workload preserves
+the reference output fingerprint.
 
 All mutable global payload stores use write-through cache policy, and all
 post-gate payload reloads use coherent cache policy. Before a relaxed arrival
@@ -788,14 +1534,14 @@ publication after final output stores.
 
 Exact polling is safe locally because a gate cannot advance to the next value
 until all consumers in the current kernel have exited and the next kernel has
-begun on the same stream. The supported TokenSpeed runtime forces the
-non-overlap scheduler, uses its model execution stream for graph warmup,
-capture, eager dispatch, and replay, and binds all 92 public plan views to that
-raw stream handle. A direct public decode call on another stream is rejected
-before dispatch. Replaying an externally owned CUDA/HIP graph bypasses the host
-owner check and is therefore unsupported; such a graph must not share this
-workspace or Iris lane. Signed INT64 overflow is outside the supported process
-lifetime; no wrap comparison or reset protocol is claimed.
+begun on the same stream. The supported TokenSpeed runtime uses the normal
+overlap scheduler while keeping graph warmup, capture, eager dispatch, and
+replay on one serialized model execution stream, and binds all 92 public plan
+views to that raw stream handle. A direct public decode call on another stream
+is rejected before dispatch. Replaying an externally owned CUDA/HIP graph
+bypasses the host owner check and is therefore unsupported; such a graph must
+not share this workspace or Iris lane. Signed INT64 overflow is outside the
+supported process lifetime; no wrap comparison or reset protocol is claimed.
 
 The verified runtime ownership paths are:
 
@@ -806,7 +1552,7 @@ ModelExecutor.__init__ (python/tokenspeed/runtime/execution/model_executor.py:49
             -> torch.cuda.graph(..., stream=self.stream) (python/tokenspeed/runtime/execution/cuda_graph_wrapper.py:524)
     -> ModelExecutor._autotune (python/tokenspeed/runtime/execution/model_executor.py:565)
         -> with torch.cuda.stream(self.execution_stream) (python/tokenspeed/runtime/execution/model_executor.py:598)
-EventLoop.event_loop (python/tokenspeed/runtime/engine/event_loop.py:1576)
+EventLoop.event_loop_overlap (python/tokenspeed/runtime/engine/event_loop.py:1706)
     -> ModelExecutor.execute_forward_op (python/tokenspeed/runtime/execution/model_executor.py:1297)
         -> with torch.cuda.stream(self.execution_stream) (python/tokenspeed/runtime/execution/model_executor.py:1329)
             -> CudaGraphWrapper.__call__ (python/tokenspeed/runtime/execution/cuda_graph_wrapper.py:1160)
@@ -1007,7 +1753,9 @@ ModelExecutor initialization
     -> create the model execution stream
     -> inject it into CudaGraphWrapper capture
     -> serialize autotune and graph warmup/capture on it
-EventLoop non-overlap step
+EventLoop overlap step
+    -> enqueue the current forward on the model execution stream
+    -> synchronize and commit the previous result while the current forward runs
     -> active forward: execute_forward_op on the model execution stream
     -> DP-idle forward: execute_idle_forward on the same stream
         -> public MegaMoE decode binds/checks the shared plan owner
@@ -1341,8 +2089,9 @@ time is explicitly excluded from performance claims.
 
 Tuning proceeds one variable at a time over:
 
-- persistent grid 227 through 240, retaining only candidates that satisfy the
-  exact loaded occupancy and eight-XCD gates;
+- persistent grid `P in {224,226,232,240,248,256}`, retaining only candidates
+  that preserve the fixed logical task census and satisfy exact loaded
+  residency plus eight-XCD gates;
 - flat, home-XCD, fixed-subset, and adaptive-XCD ownership;
 - input and shared output tile sizes;
 - shared-first/routed-first/parity-interleaved phase 3;
@@ -1355,7 +2104,11 @@ changes numerical order unintentionally, introduces memory/VGPR spills,
 regresses the qualified scalar lane-spill bound without an end-to-end win,
 destabilizes graph replay, or wins only an ATT-perturbed measurement.
 
-## 16. Performance acceptance
+## 16. Initial d5dad performance rejection and final acceptance rule
+
+This section preserves the first controlled cooperative-d5dad rejection. It is
+historical evidence, not the current tuning scoreboard; the living ledger
+records the later ordinary-launch and scheduler-overlap results.
 
 Kernel microbenchmarks are necessary but not sufficient. The final paired
 benchmark is recorded in
@@ -1415,21 +2168,28 @@ TPOT and TTFT are included above. Retained per-layer timing, rank-skew,
 compile/resource, and higher-captured-batch fallback probes remain diagnostic
 evidence; they do not override the paired output-throughput rejection.
 
-The single persistent kernel produced an identical normalized completion for
-the paired workload but does not beat either baseline. It therefore remains
-off, with the implementation marker set to `False`. Follow-up profiling must
-identify whether the loss is top-k, barrier cost, resource-union occupancy, XCD
-mapping, expert weight bandwidth, communication, or final projection.
-Launch-count reduction alone is not a success criterion.
+The cooperative d5dad candidate produced an identical normalized completion for
+the paired workload but did not beat either baseline. The experiment therefore
+remains off, with the implementation marker set to `False`. Ordinary launch
+subsequently removed the side-stream/interference component, but has not yet
+passed the full matched 4096-to-1024 acceptance benchmark. Phase-attributed
+body optimization and that final paired benchmark remain mandatory;
+launch-count reduction alone is not a success criterion.
 
-## 17. Extension to batch sizes below 16
+## 17. Extension to target batches 8 and 16
 
-The batch-one schedule must not hard-code an ownership model that blocks future
-small batches. Planned variants are `M=2-4`, `M=5-8`, and `M=9-15`. They will
-group routes by expert, use stable expert/XCD subsets, and traverse token rows
-M-major so weights can be reused in XCD L2. Their routing, scratch sizing,
-collective geometry, and residency are separate compile-time plans. They are
-not enabled merely by relaxing an `M==1` check.
+The batch-one schedule must not hard-code an ownership model that blocks B8 or
+B16. Those two target batches use separately compiled plans. They group routes
+by expert, use stable expert/XCD subsets only when measured, and traverse token
+rows M-fast/windowed so a weight tile can serve several rows before eviction.
+Their routing, scratch sizing, collective geometry, graph capture, and
+residency are separate contracts; they are not enabled merely by relaxing an
+`M==1` check.
+
+A matched output-throughput win at B1, B8, or B16 is sufficient for the project
+goal. Every reported winner remains scoped to its measured batch: a B8/B16
+throughput result does not establish B1 latency, and a B1 result does not prove
+weight reuse or tail behavior at B8/B16.
 
 The current optimized kernels remain the correctness and fallback path until a
 variant independently passes the same output-throughput and memory-model gates.

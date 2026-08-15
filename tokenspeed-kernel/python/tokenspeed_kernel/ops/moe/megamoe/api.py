@@ -26,12 +26,11 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import torch
-from tokenspeed_kernel.platform import current_platform
-
 from tokenspeed_kernel.ops.moe.megamoe.types import (
     KimiK3MegaMoELayerPlan,
     KimiK3MegaMoELayerSpec,
 )
+from tokenspeed_kernel.platform import current_platform
 
 _DEFAULT_TIMEOUT_NS = 1_000_000_000
 
@@ -60,9 +59,11 @@ def _normalize_specs(
     layer_specs: Sequence[KimiK3MegaMoELayerSpec | Mapping[str, Any]],
 ) -> tuple[KimiK3MegaMoELayerSpec, ...]:
     specs = tuple(
-        value
-        if isinstance(value, KimiK3MegaMoELayerSpec)
-        else KimiK3MegaMoELayerSpec.from_mapping(value)
+        (
+            value
+            if isinstance(value, KimiK3MegaMoELayerSpec)
+            else KimiK3MegaMoELayerSpec.from_mapping(value)
+        )
         for value in layer_specs
     )
     if len(specs) != 92:
@@ -130,9 +131,7 @@ def prepare_kimi_k3_megamoe(
             raise ValueError("Kimi K3 MegaMoE timeout_ns must be positive")
         specs = _normalize_specs(layer_specs)
         if specs[0].device != like.device:
-            raise ValueError(
-                "Kimi K3 MegaMoE like tensor must share the layer device"
-            )
+            raise ValueError("Kimi K3 MegaMoE like tensor must share the layer device")
         from tokenspeed_kernel.ops.moe.megamoe.gluon import (
             prepare_gfx950 as imported_prepare_gfx950,
         )

@@ -18,7 +18,7 @@
 2026-08-12T02:13:38.5518903Z   matrix: {"include":[{"name":"eval-gpt-oss-120b-mxfp4-gpqa-diamond","type":"eval","config":"test/ci/eval/gpt-oss-120b-mxfp4-evalscope-gpqa-diamond.yaml","runner":"amd-mi35x-2gpu-test","priority":"normal","optional":false,"workflow_stage":"model-test"},{"name":"eval-inkling-mxfp4-mtp-gsm8k","type":"eval","config":"test/ci/eval/inkling-mxfp4-mtp-evalscope-gsm8k.yaml","runner":"amd-mi35x-4gpu-test","priority":"normal","optional":false,"workflow_stage":"model-test"},{"name":"eval-kimi-k2.5-mxfp4-aime25-amd","type":"eval","config":"test/ci/eval/kimi-k2.5-mxfp4-eagle3-evalscope-aime25-amd.yaml","runner":"amd-mi35x-4gpu-test","priority":"normal","optional":false,"workflow_stage":"model-test"},{"name":"eval-kimi-k3-mxfp4-tp8ep8-aime26-amd","type":"eval","config":"test/ci/eval/kimi-k3-mxfp4-tp8ep8-evalscope-aime26-amd.yaml","runner":"amd-mi35x-8gpu-test","priority":"normal","optional":false,"workflow_stage":"model-test"},{"name":"eval-qwen3.5-397b-a17b-mxfp4-aime25","type":"eval","config":"test/ci/eval/qwen3.5-397b-a17b-mxfp4-evalscope-aime25.yaml","runner":"amd-mi35x-4gpu-test","priority":"normal","optional":false,"workflow_stage":"model-test"},{"name":"perf-gpt-oss-120b-mxfp4-mi35x","type":"perf","config":"test/ci/perf/gpt-oss-120b-mxfp4-evalscope-mi35x.yaml","runner":"amd-mi355-1gpu-bench","priority":"normal","optional":false,"workflow_stage":"model-test"},{"name":"perf-kimi-k3-mxfp4-tp8ep8-random-4k-1k-mi35x","type":"perf","config":"test/ci/perf/kimi-k3-mxfp4-tp8ep8-evalscope-random-4k-1k-mi35x.yaml","runner":"amd-mi35x-8gpu-test","priority":"normal","optional":false,"workflow_stage":"model-test"}]}
 2026-08-12T02:13:38.5521812Z   install_tokenspeed_mla_from_source: 0
 2026-08-12T02:13:38.5521995Z   b200_runner_label: b200v2
-2026-08-12T02:13:38.5522157Z   checkout_ref: 
+2026-08-12T02:13:38.5522157Z   checkout_ref:
 2026-08-12T02:13:38.5522675Z   timeout_minutes: 60
 2026-08-12T02:13:38.5522836Z ##[endgroup]
 2026-08-12T02:13:38.5523072Z Complete job name: model-test / eval-qwen3.5-397b-a17b-mxfp4-aime25 (amd-mi35x-4gpu-test)
@@ -63,12 +63,12 @@
 2026-08-12T02:13:38.6499356Z hint: Using 'master' as the name for the initial branch. This default branch name
 2026-08-12T02:13:38.6499692Z hint: is subject to change. To configure the initial branch name to use in all
 2026-08-12T02:13:38.6500007Z hint: of your new repositories, which will suppress this warning, call:
-2026-08-12T02:13:38.6500230Z hint: 
+2026-08-12T02:13:38.6500230Z hint:
 2026-08-12T02:13:38.6500445Z hint: 	git config --global init.defaultBranch <name>
-2026-08-12T02:13:38.6500664Z hint: 
+2026-08-12T02:13:38.6500664Z hint:
 2026-08-12T02:13:38.6500884Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
 2026-08-12T02:13:38.6501202Z hint: 'development'. The just-created branch can be renamed via this command:
-2026-08-12T02:13:38.6501430Z hint: 
+2026-08-12T02:13:38.6501430Z hint:
 2026-08-12T02:13:38.6501586Z hint: 	git branch -m <name>
 2026-08-12T02:13:38.6502061Z Initialized empty Git repository in /home/runner/_work/tokenspeed/tokenspeed/run-31549822483-1-eval-qwen3.5-397b-a17b-mxfp4-aime25-amd-mi35x-4gpu-test/.git/
 2026-08-12T02:13:38.6502829Z [command]/usr/bin/git remote add origin https://github.com/lightseekorg/tokenspeed
@@ -97,22 +97,22 @@
 2026-08-12T02:13:40.2550293Z ##[group]Checking out the ref
 2026-08-12T02:13:40.2552101Z [command]/usr/bin/git checkout --progress --force 67ba425ba041f0586fda0f848856c8bdb3d8f3ba
 2026-08-12T02:13:40.3363816Z Note: switching to '67ba425ba041f0586fda0f848856c8bdb3d8f3ba'.
-2026-08-12T02:13:40.3364081Z 
+2026-08-12T02:13:40.3364081Z
 2026-08-12T02:13:40.3364267Z You are in 'detached HEAD' state. You can look around, make experimental
 2026-08-12T02:13:40.3364580Z changes and commit them, and you can discard any commits you make in this
 2026-08-12T02:13:40.3364886Z state without impacting any branches by switching back to a branch.
-2026-08-12T02:13:40.3365054Z 
+2026-08-12T02:13:40.3365054Z
 2026-08-12T02:13:40.3365266Z If you want to create a new branch to retain commits you create, you may
 2026-08-12T02:13:40.3365555Z do so (now or later) by using -c with the switch command. Example:
-2026-08-12T02:13:40.3365716Z 
+2026-08-12T02:13:40.3365716Z
 2026-08-12T02:13:40.3365812Z   git switch -c <new-branch-name>
-2026-08-12T02:13:40.3365912Z 
+2026-08-12T02:13:40.3365912Z
 2026-08-12T02:13:40.3366013Z Or undo this operation with:
-2026-08-12T02:13:40.3366107Z 
+2026-08-12T02:13:40.3366107Z
 2026-08-12T02:13:40.3366178Z   git switch -
-2026-08-12T02:13:40.3366299Z 
+2026-08-12T02:13:40.3366299Z
 2026-08-12T02:13:40.3366466Z Turn off this advice by setting config variable advice.detachedHead to false
-2026-08-12T02:13:40.3366629Z 
+2026-08-12T02:13:40.3366629Z
 2026-08-12T02:13:40.3366894Z HEAD is now at 67ba425 Merge 1c303019fcfd407004f5e5f0ff8036f4e66aca26 into dd4e49fc0f2e5cb1091e1f0fe4ce5f38f55ee731
 2026-08-12T02:13:40.3372841Z ##[endgroup]
 2026-08-12T02:13:40.3404095Z [command]/usr/bin/git log -1 --format=%H
@@ -236,14 +236,14 @@
 2026-08-12T02:13:52.5399195Z ninja-build is already the newest version (1.11.1-2).
 2026-08-12T02:13:52.5399445Z 0 upgraded, 0 newly installed, 0 to remove and 78 not upgraded.
 2026-08-12T02:13:52.5399856Z $ bash test/ci_system/cleanup_amd_gpu_state.sh
-2026-08-12T02:13:56.0529688Z [cleanup_amd_gpu_state] self_pid=540 ancestors= 540 539 281 279 44 14 10 1 
-2026-08-12T02:13:56.0529898Z 
+2026-08-12T02:13:56.0529688Z [cleanup_amd_gpu_state] self_pid=540 ancestors= 540 539 281 279 44 14 10 1
+2026-08-12T02:13:56.0529898Z
 2026-08-12T02:13:56.0529997Z ==========================================================================
 2026-08-12T02:13:56.0530229Z   GPU state BEFORE cleanup
 2026-08-12T02:13:56.0530401Z ==========================================================================
 2026-08-12T02:13:56.0530597Z ----- rocm-smi --showid -----
-2026-08-12T02:13:56.0530720Z 
-2026-08-12T02:13:56.0530724Z 
+2026-08-12T02:13:56.0530720Z
+2026-08-12T02:13:56.0530724Z
 2026-08-12T02:13:56.0530868Z ============================ ROCm System Management Interface ============================
 2026-08-12T02:13:56.0531115Z =========================================== ID ===========================================
 2026-08-12T02:13:56.0531328Z GPU[0]		: Device Name: 		AMD Radeon Graphics
@@ -268,34 +268,34 @@
 2026-08-12T02:13:56.0534374Z GPU[3]		: GUID: 		55966
 2026-08-12T02:13:56.0534555Z ==========================================================================================
 2026-08-12T02:13:56.0534791Z ================================== End of ROCm SMI Log ===================================
-2026-08-12T02:13:56.0534916Z 
+2026-08-12T02:13:56.0534916Z
 2026-08-12T02:13:56.0534995Z ----- rocm-smi --showpids -----
-2026-08-12T02:13:56.0535079Z 
-2026-08-12T02:13:56.0535081Z 
+2026-08-12T02:13:56.0535079Z
+2026-08-12T02:13:56.0535081Z
 2026-08-12T02:13:56.0535216Z ============================ ROCm System Management Interface ============================
 2026-08-12T02:13:56.0535470Z ===================================== KFD Processes ======================================
 2026-08-12T02:13:56.0535712Z KFD process information:
-2026-08-12T02:13:56.0535919Z PID    	PROCESS NAME	GPU(s)	VRAM USED	SDMA USED	CU OCCUPANCY	
-2026-08-12T02:13:56.0536172Z 1311488	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0536393Z 1311486	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0536608Z 1318918	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0536826Z 1308856	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0537039Z 1318924	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0537248Z 1310870	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0537871Z 1311487	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0538081Z 1318922	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0538292Z 1311485	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0538503Z 1318920	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0538714Z 2356880	UNKNOWN     	0     	0        	0        	0           	
+2026-08-12T02:13:56.0535919Z PID    	PROCESS NAME	GPU(s)	VRAM USED	SDMA USED	CU OCCUPANCY
+2026-08-12T02:13:56.0536172Z 1311488	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0536393Z 1311486	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0536608Z 1318918	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0536826Z 1308856	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0537039Z 1318924	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0537248Z 1310870	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0537871Z 1311487	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0538081Z 1318922	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0538292Z 1311485	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0538503Z 1318920	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0538714Z 2356880	UNKNOWN     	0     	0        	0        	0
 2026-08-12T02:13:56.0538937Z ==========================================================================================
 2026-08-12T02:13:56.0539186Z ================================== End of ROCm SMI Log ===================================
-2026-08-12T02:13:56.0539313Z 
-2026-08-12T02:13:56.0539315Z 
+2026-08-12T02:13:56.0539313Z
+2026-08-12T02:13:56.0539315Z
 2026-08-12T02:13:56.0539522Z ==========================================================================
 2026-08-12T02:13:56.0539715Z   Discovering GPU-holding PIDs
 2026-08-12T02:13:56.0539895Z ==========================================================================
-2026-08-12T02:13:56.0540199Z GPU-holding PIDs: 1308856 1310870 1311485 1311486 1311487 1311488 1318918 1318920 1318922 1318924 2356880 
-2026-08-12T02:13:56.0540390Z 
+2026-08-12T02:13:56.0540199Z GPU-holding PIDs: 1308856 1310870 1311485 1311486 1311487 1311488 1318918 1318920 1318922 1318924 2356880
+2026-08-12T02:13:56.0540390Z
 2026-08-12T02:13:56.0540457Z ----- forensic ps -----
 2026-08-12T02:13:56.0540602Z   pid=1308856 (already gone)
 2026-08-12T02:13:56.0540750Z   pid=1310870 (already gone)
@@ -308,37 +308,37 @@
 2026-08-12T02:13:56.0541742Z   pid=1318922 (already gone)
 2026-08-12T02:13:56.0541887Z   pid=1318924 (already gone)
 2026-08-12T02:13:56.0542032Z   pid=2356880 (already gone)
-2026-08-12T02:13:56.0542108Z 
-2026-08-12T02:13:56.0542110Z 
+2026-08-12T02:13:56.0542108Z
+2026-08-12T02:13:56.0542110Z
 2026-08-12T02:13:56.0542208Z ==========================================================================
 2026-08-12T02:13:56.0542396Z   Killing GPU-holding PIDs
 2026-08-12T02:13:56.0542783Z ==========================================================================
 2026-08-12T02:13:56.0542982Z Sending SIGTERM...
-2026-08-12T02:13:56.0543054Z 
+2026-08-12T02:13:56.0543054Z
 2026-08-12T02:13:56.0543147Z ==========================================================================
 2026-08-12T02:13:56.0543325Z   GPU state AFTER cleanup
 2026-08-12T02:13:56.0543492Z ==========================================================================
 2026-08-12T02:13:56.0543671Z ----- rocm-smi --showpids -----
-2026-08-12T02:13:56.0543754Z 
-2026-08-12T02:13:56.0543756Z 
+2026-08-12T02:13:56.0543754Z
+2026-08-12T02:13:56.0543756Z
 2026-08-12T02:13:56.0543894Z ============================ ROCm System Management Interface ============================
 2026-08-12T02:13:56.0544198Z ===================================== KFD Processes ======================================
 2026-08-12T02:13:56.0544397Z KFD process information:
-2026-08-12T02:13:56.0544590Z PID    	PROCESS NAME	GPU(s)	VRAM USED	SDMA USED	CU OCCUPANCY	
-2026-08-12T02:13:56.0544822Z 1311488	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0545039Z 1311486	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0545253Z 1318918	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0545471Z 1308856	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0545683Z 1318924	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0545972Z 1310870	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0546186Z 1311487	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0546399Z 1318922	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0546613Z 1311485	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0546824Z 1318920	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:13:56.0547034Z 2356880	UNKNOWN     	0     	0        	0        	0           	
+2026-08-12T02:13:56.0544590Z PID    	PROCESS NAME	GPU(s)	VRAM USED	SDMA USED	CU OCCUPANCY
+2026-08-12T02:13:56.0544822Z 1311488	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0545039Z 1311486	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0545253Z 1318918	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0545471Z 1308856	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0545683Z 1318924	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0545972Z 1310870	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0546186Z 1311487	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0546399Z 1318922	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0546613Z 1311485	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0546824Z 1318920	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:13:56.0547034Z 2356880	UNKNOWN     	0     	0        	0        	0
 2026-08-12T02:13:56.0547315Z ==========================================================================================
 2026-08-12T02:13:56.0547554Z ================================== End of ROCm SMI Log ===================================
-2026-08-12T02:13:56.0547690Z 
+2026-08-12T02:13:56.0547690Z
 2026-08-12T02:13:56.0547769Z $ bash test/ci_system/install_deps.sh
 2026-08-12T02:14:01.3428610Z Detected AMD runner 'amd-mi35x-4gpu-test', delegating to install_deps_rocm.sh
 2026-08-12T02:14:01.3428988Z ==========================================
@@ -373,7 +373,7 @@
 2026-08-12T02:14:01.3468583Z     Found existing installation: setuptools 84.0.0
 2026-08-12T02:14:01.3468864Z     Uninstalling setuptools-84.0.0:
 2026-08-12T02:14:01.3469127Z       Successfully uninstalled setuptools-84.0.0
-2026-08-12T02:14:01.3469282Z 
+2026-08-12T02:14:01.3469282Z
 2026-08-12T02:14:01.3469436Z Successfully installed setuptools-81.0.0 wheel-0.48.0
 2026-08-12T02:14:01.3469719Z === Step 3: Check PyTorch for ROCm ===
 2026-08-12T02:14:01.3469989Z === Step 4: Install tokenspeed-kernel packages ===
@@ -394,15 +394,15 @@
 2026-08-12T02:14:01.3476323Z   Running command Preparing metadata (pyproject.toml)
 2026-08-12T02:14:01.3477277Z   /opt/venv/lib/python3.12/site-packages/setuptools/config/_apply_pyprojecttoml.py:55: SetuptoolsDeprecationWarning: 'tool.setuptools.license-files' is deprecated in favor of 'project.license-files' (available on setuptools>=77.0.0).
 2026-08-12T02:14:01.3478006Z   !!
-2026-08-12T02:14:01.3478087Z 
+2026-08-12T02:14:01.3478087Z
 2026-08-12T02:14:01.3478257Z           ********************************************************************************
-2026-08-12T02:14:01.3478449Z 
+2026-08-12T02:14:01.3478449Z
 2026-08-12T02:14:01.3478660Z           By 2027-Feb-18, you need to update your project and remove deprecated calls
 2026-08-12T02:14:01.3479007Z           or your builds will no longer be supported.
-2026-08-12T02:14:01.3479149Z 
+2026-08-12T02:14:01.3479149Z
 2026-08-12T02:14:01.3479486Z           See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license-files for details.
 2026-08-12T02:14:01.3479924Z           ********************************************************************************
-2026-08-12T02:14:01.3480092Z 
+2026-08-12T02:14:01.3480092Z
 2026-08-12T02:14:01.3480156Z   !!
 2026-08-12T02:14:01.3480349Z     _apply_tool_table(dist, config, filename)
 2026-08-12T02:14:01.3480572Z   running dist_info
@@ -538,15 +538,15 @@
 2026-08-12T02:14:02.0056283Z   Running command Building wheel for tokenspeed_kernel (pyproject.toml)
 2026-08-12T02:14:02.0056987Z   /opt/venv/lib/python3.12/site-packages/setuptools/config/_apply_pyprojecttoml.py:55: SetuptoolsDeprecationWarning: 'tool.setuptools.license-files' is deprecated in favor of 'project.license-files' (available on setuptools>=77.0.0).
 2026-08-12T02:14:02.0057504Z   !!
-2026-08-12T02:14:02.0057566Z 
+2026-08-12T02:14:02.0057566Z
 2026-08-12T02:14:02.0057685Z           ********************************************************************************
-2026-08-12T02:14:02.0057875Z 
+2026-08-12T02:14:02.0057875Z
 2026-08-12T02:14:02.0058038Z           By 2027-Feb-18, you need to update your project and remove deprecated calls
 2026-08-12T02:14:02.0058305Z           or your builds will no longer be supported.
-2026-08-12T02:14:02.0058419Z 
+2026-08-12T02:14:02.0058419Z
 2026-08-12T02:14:02.0058657Z           See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license-files for details.
 2026-08-12T02:14:02.0058990Z           ********************************************************************************
-2026-08-12T02:14:02.0059116Z 
+2026-08-12T02:14:02.0059116Z
 2026-08-12T02:14:02.0059165Z   !!
 2026-08-12T02:14:02.0059314Z     _apply_tool_table(dist, config, filename)
 2026-08-12T02:14:02.0059490Z   running bdist_wheel
@@ -583,7 +583,7 @@
 2026-08-12T02:14:03.3333500Z   Installing collected packages: tokenspeed-triton, psutil, tokenspeed-proton
 2026-08-12T02:14:03.3333824Z     changing mode of /opt/venv/bin/proton to 755
 2026-08-12T02:14:03.3334192Z     changing mode of /opt/venv/bin/proton-viewer to 755
-2026-08-12T02:14:03.3334344Z 
+2026-08-12T02:14:03.3334344Z
 2026-08-12T02:14:03.3334641Z   Successfully installed psutil-7.2.2 tokenspeed-proton-3.8.10.post20260721 tokenspeed-triton-3.8.10.post20260721
 2026-08-12T02:14:03.3335057Z   Installing rocm build requirements before native build
 2026-08-12T02:14:03.3335341Z   CUDA backend not selected; skipping CUDA kernel build
@@ -905,453 +905,453 @@
 2026-08-12T02:14:03.3668417Z   writing manifest file 'tokenspeed_kernel.egg-info/SOURCES.txt'
 2026-08-12T02:14:03.3668942Z   /opt/venv/lib/python3.12/site-packages/setuptools/command/build_py.py:215: _Warning: Package 'tokenspeed_kernel.ops.moe.flashinfer.tactics' is absent from the `packages` configuration.
 2026-08-12T02:14:03.3669330Z   !!
-2026-08-12T02:14:03.3669392Z 
+2026-08-12T02:14:03.3669392Z
 2026-08-12T02:14:03.3669502Z           ********************************************************************************
 2026-08-12T02:14:03.3669695Z           ############################
 2026-08-12T02:14:03.3669858Z           # Package would be ignored #
 2026-08-12T02:14:03.3670015Z           ############################
 2026-08-12T02:14:03.3670299Z           Python recognizes 'tokenspeed_kernel.ops.moe.flashinfer.tactics' as an importable package[^1],
 2026-08-12T02:14:03.3670613Z           but it is absent from setuptools' `packages` configuration.
-2026-08-12T02:14:03.3670741Z 
+2026-08-12T02:14:03.3670741Z
 2026-08-12T02:14:03.3670904Z           This leads to an ambiguous overall configuration. If you want to distribute this
 2026-08-12T02:14:03.3671267Z           package, please make sure that 'tokenspeed_kernel.ops.moe.flashinfer.tactics' is explicitly added
 2026-08-12T02:14:03.3671619Z           to the `packages` configuration field.
-2026-08-12T02:14:03.3671724Z 
+2026-08-12T02:14:03.3671724Z
 2026-08-12T02:14:03.3671857Z           Alternatively, you can also rely on setuptools' discovery methods
 2026-08-12T02:14:03.3672136Z           (for example by using `find_namespace_packages(...)`/`find_namespace:`
 2026-08-12T02:14:03.3672365Z           instead of `find_packages(...)`/`find:`).
-2026-08-12T02:14:03.3672471Z 
+2026-08-12T02:14:03.3672471Z
 2026-08-12T02:14:03.3672629Z           You can read more about "package discovery" on setuptools documentation page:
-2026-08-12T02:14:03.3672789Z 
+2026-08-12T02:14:03.3672789Z
 2026-08-12T02:14:03.3672952Z           - https://setuptools.pypa.io/en/latest/userguide/package_discovery.html
-2026-08-12T02:14:03.3673109Z 
+2026-08-12T02:14:03.3673109Z
 2026-08-12T02:14:03.3673355Z           If you don't want 'tokenspeed_kernel.ops.moe.flashinfer.tactics' to be distributed and are
 2026-08-12T02:14:03.3673702Z           already explicitly excluding 'tokenspeed_kernel.ops.moe.flashinfer.tactics' via
 2026-08-12T02:14:03.3674059Z           `find_namespace_packages(...)/find_namespace` or `find_packages(...)/find`,
 2026-08-12T02:14:03.3674361Z           you can try to use `exclude_package_data`, or `include-package-data=False` in
 2026-08-12T02:14:03.3674656Z           combination with a more fine grained `package-data` configuration.
-2026-08-12T02:14:03.3674799Z 
+2026-08-12T02:14:03.3674799Z
 2026-08-12T02:14:03.3674954Z           You can read more about "package data files" on setuptools documentation page:
-2026-08-12T02:14:03.3675113Z 
+2026-08-12T02:14:03.3675113Z
 2026-08-12T02:14:03.3675245Z           - https://setuptools.pypa.io/en/latest/userguide/datafiles.html
-2026-08-12T02:14:03.3675390Z 
-2026-08-12T02:14:03.3675391Z 
+2026-08-12T02:14:03.3675390Z
+2026-08-12T02:14:03.3675391Z
 2026-08-12T02:14:03.3675534Z           [^1]: For Python, any directory (with suitable naming) can be imported,
 2026-08-12T02:14:03.3675775Z                 even if it does not contain any `.py` files.
 2026-08-12T02:14:03.3676018Z                 On the other hand, currently there is no concept of package data
 2026-08-12T02:14:03.3676269Z                 directory, all directories are treated like packages.
 2026-08-12T02:14:03.3676497Z           ********************************************************************************
-2026-08-12T02:14:03.3676617Z 
+2026-08-12T02:14:03.3676617Z
 2026-08-12T02:14:03.3676665Z   !!
 2026-08-12T02:14:03.3676785Z     check.warn(importable)
 2026-08-12T02:14:03.3677242Z   /opt/venv/lib/python3.12/site-packages/setuptools/command/build_py.py:215: _Warning: Package 'tokenspeed_kernel.thirdparty.msa.csrc' is absent from the `packages` configuration.
 2026-08-12T02:14:03.3677608Z   !!
-2026-08-12T02:14:03.3677659Z 
+2026-08-12T02:14:03.3677659Z
 2026-08-12T02:14:03.3677762Z           ********************************************************************************
 2026-08-12T02:14:03.3677944Z           ############################
 2026-08-12T02:14:03.3678106Z           # Package would be ignored #
 2026-08-12T02:14:03.3678261Z           ############################
 2026-08-12T02:14:03.3678527Z           Python recognizes 'tokenspeed_kernel.thirdparty.msa.csrc' as an importable package[^1],
 2026-08-12T02:14:03.3678827Z           but it is absent from setuptools' `packages` configuration.
-2026-08-12T02:14:03.3678958Z 
+2026-08-12T02:14:03.3678958Z
 2026-08-12T02:14:03.3679115Z           This leads to an ambiguous overall configuration. If you want to distribute this
 2026-08-12T02:14:03.3679459Z           package, please make sure that 'tokenspeed_kernel.thirdparty.msa.csrc' is explicitly added
 2026-08-12T02:14:03.3679729Z           to the `packages` configuration field.
-2026-08-12T02:14:03.3679832Z 
+2026-08-12T02:14:03.3679832Z
 2026-08-12T02:14:03.3679965Z           Alternatively, you can also rely on setuptools' discovery methods
 2026-08-12T02:14:03.3680253Z           (for example by using `find_namespace_packages(...)`/`find_namespace:`
 2026-08-12T02:14:03.3680484Z           instead of `find_packages(...)`/`find:`).
-2026-08-12T02:14:03.3680621Z 
+2026-08-12T02:14:03.3680621Z
 2026-08-12T02:14:03.3680776Z           You can read more about "package discovery" on setuptools documentation page:
-2026-08-12T02:14:03.3680936Z 
+2026-08-12T02:14:03.3680936Z
 2026-08-12T02:14:03.3681082Z           - https://setuptools.pypa.io/en/latest/userguide/package_discovery.html
-2026-08-12T02:14:03.3681303Z 
+2026-08-12T02:14:03.3681303Z
 2026-08-12T02:14:03.3681468Z           If you don't want 'tokenspeed_kernel.thirdparty.msa.csrc' to be distributed and are
 2026-08-12T02:14:03.3681784Z           already explicitly excluding 'tokenspeed_kernel.thirdparty.msa.csrc' via
 2026-08-12T02:14:03.3682087Z           `find_namespace_packages(...)/find_namespace` or `find_packages(...)/find`,
 2026-08-12T02:14:03.3682392Z           you can try to use `exclude_package_data`, or `include-package-data=False` in
 2026-08-12T02:14:03.3682684Z           combination with a more fine grained `package-data` configuration.
-2026-08-12T02:14:03.3682827Z 
+2026-08-12T02:14:03.3682827Z
 2026-08-12T02:14:03.3683032Z           You can read more about "package data files" on setuptools documentation page:
-2026-08-12T02:14:03.3683191Z 
+2026-08-12T02:14:03.3683191Z
 2026-08-12T02:14:03.3683323Z           - https://setuptools.pypa.io/en/latest/userguide/datafiles.html
-2026-08-12T02:14:03.3683465Z 
-2026-08-12T02:14:03.3683469Z 
+2026-08-12T02:14:03.3683465Z
+2026-08-12T02:14:03.3683469Z
 2026-08-12T02:14:03.3683609Z           [^1]: For Python, any directory (with suitable naming) can be imported,
 2026-08-12T02:14:03.3683847Z                 even if it does not contain any `.py` files.
 2026-08-12T02:14:03.3684123Z                 On the other hand, currently there is no concept of package data
 2026-08-12T02:14:03.3684373Z                 directory, all directories are treated like packages.
 2026-08-12T02:14:03.3684600Z           ********************************************************************************
-2026-08-12T02:14:03.3684720Z 
+2026-08-12T02:14:03.3684720Z
 2026-08-12T02:14:03.3684769Z   !!
 2026-08-12T02:14:03.3684886Z     check.warn(importable)
 2026-08-12T02:14:03.3685347Z   /opt/venv/lib/python3.12/site-packages/setuptools/command/build_py.py:215: _Warning: Package 'tokenspeed_kernel.thirdparty.msa.csrc.include' is absent from the `packages` configuration.
 2026-08-12T02:14:03.3685730Z   !!
-2026-08-12T02:14:03.3685781Z 
+2026-08-12T02:14:03.3685781Z
 2026-08-12T02:14:03.3685884Z           ********************************************************************************
 2026-08-12T02:14:03.3686067Z           ############################
 2026-08-12T02:14:03.3686222Z           # Package would be ignored #
 2026-08-12T02:14:03.3686373Z           ############################
 2026-08-12T02:14:03.3686660Z           Python recognizes 'tokenspeed_kernel.thirdparty.msa.csrc.include' as an importable package[^1],
 2026-08-12T02:14:03.3686972Z           but it is absent from setuptools' `packages` configuration.
-2026-08-12T02:14:03.3687103Z 
+2026-08-12T02:14:03.3687103Z
 2026-08-12T02:14:03.3687259Z           This leads to an ambiguous overall configuration. If you want to distribute this
 2026-08-12T02:14:03.3687627Z           package, please make sure that 'tokenspeed_kernel.thirdparty.msa.csrc.include' is explicitly added
 2026-08-12T02:14:03.3687911Z           to the `packages` configuration field.
-2026-08-12T02:14:03.3688013Z 
+2026-08-12T02:14:03.3688013Z
 2026-08-12T02:14:03.3688147Z           Alternatively, you can also rely on setuptools' discovery methods
 2026-08-12T02:14:03.3688657Z           (for example by using `find_namespace_packages(...)`/`find_namespace:`
 2026-08-12T02:14:03.3689007Z           instead of `find_packages(...)`/`find:`).
-2026-08-12T02:14:03.3689132Z 
+2026-08-12T02:14:03.3689132Z
 2026-08-12T02:14:03.3689315Z           You can read more about "package discovery" on setuptools documentation page:
-2026-08-12T02:14:03.3689479Z 
+2026-08-12T02:14:03.3689479Z
 2026-08-12T02:14:03.3689690Z           - https://setuptools.pypa.io/en/latest/userguide/package_discovery.html
-2026-08-12T02:14:03.3689859Z 
+2026-08-12T02:14:03.3689859Z
 2026-08-12T02:14:03.3690075Z           If you don't want 'tokenspeed_kernel.thirdparty.msa.csrc.include' to be distributed and are
 2026-08-12T02:14:03.3690468Z           already explicitly excluding 'tokenspeed_kernel.thirdparty.msa.csrc.include' via
 2026-08-12T02:14:03.3690847Z           `find_namespace_packages(...)/find_namespace` or `find_packages(...)/find`,
 2026-08-12T02:14:03.3715438Z           you can try to use `exclude_package_data`, or `include-package-data=False` in
 2026-08-12T02:14:03.3715853Z           combination with a more fine grained `package-data` configuration.
-2026-08-12T02:14:03.3716080Z 
+2026-08-12T02:14:03.3716080Z
 2026-08-12T02:14:03.3716290Z           You can read more about "package data files" on setuptools documentation page:
-2026-08-12T02:14:03.3716458Z 
+2026-08-12T02:14:03.3716458Z
 2026-08-12T02:14:03.3716753Z           - https://setuptools.pypa.io/en/latest/userguide/datafiles.html
-2026-08-12T02:14:03.3716915Z 
-2026-08-12T02:14:03.3716936Z 
+2026-08-12T02:14:03.3716915Z
+2026-08-12T02:14:03.3716936Z
 2026-08-12T02:14:03.3717090Z           [^1]: For Python, any directory (with suitable naming) can be imported,
 2026-08-12T02:14:03.3717417Z                 even if it does not contain any `.py` files.
 2026-08-12T02:14:03.3717699Z                 On the other hand, currently there is no concept of package data
 2026-08-12T02:14:03.3717986Z                 directory, all directories are treated like packages.
 2026-08-12T02:14:03.3718355Z           ********************************************************************************
-2026-08-12T02:14:03.3718484Z 
+2026-08-12T02:14:03.3718484Z
 2026-08-12T02:14:03.3718572Z   !!
 2026-08-12T02:14:03.3718749Z     check.warn(importable)
 2026-08-12T02:14:03.3719234Z   /opt/venv/lib/python3.12/site-packages/setuptools/command/build_py.py:215: _Warning: Package 'tokenspeed_kernel.thirdparty.msa.cute' is absent from the `packages` configuration.
 2026-08-12T02:14:03.3719644Z   !!
-2026-08-12T02:14:03.3719753Z 
+2026-08-12T02:14:03.3719753Z
 2026-08-12T02:14:03.3719869Z           ********************************************************************************
 2026-08-12T02:14:03.3720103Z           ############################
 2026-08-12T02:14:03.3720312Z           # Package would be ignored #
 2026-08-12T02:14:03.3720515Z           ############################
 2026-08-12T02:14:03.3720832Z           Python recognizes 'tokenspeed_kernel.thirdparty.msa.cute' as an importable package[^1],
 2026-08-12T02:14:03.3721208Z           but it is absent from setuptools' `packages` configuration.
-2026-08-12T02:14:03.3721351Z 
+2026-08-12T02:14:03.3721351Z
 2026-08-12T02:14:03.3721546Z           This leads to an ambiguous overall configuration. If you want to distribute this
 2026-08-12T02:14:03.3721938Z           package, please make sure that 'tokenspeed_kernel.thirdparty.msa.cute' is explicitly added
 2026-08-12T02:14:03.3722264Z           to the `packages` configuration field.
-2026-08-12T02:14:03.3722380Z 
+2026-08-12T02:14:03.3722380Z
 2026-08-12T02:14:03.3722547Z           Alternatively, you can also rely on setuptools' discovery methods
 2026-08-12T02:14:03.3722878Z           (for example by using `find_namespace_packages(...)`/`find_namespace:`
 2026-08-12T02:14:03.3723193Z           instead of `find_packages(...)`/`find:`).
-2026-08-12T02:14:03.3723311Z 
+2026-08-12T02:14:03.3723311Z
 2026-08-12T02:14:03.3723500Z           You can read more about "package discovery" on setuptools documentation page:
-2026-08-12T02:14:03.3723679Z 
+2026-08-12T02:14:03.3723679Z
 2026-08-12T02:14:03.3723865Z           - https://setuptools.pypa.io/en/latest/userguide/package_discovery.html
-2026-08-12T02:14:03.3724066Z 
+2026-08-12T02:14:03.3724066Z
 2026-08-12T02:14:03.3724269Z           If you don't want 'tokenspeed_kernel.thirdparty.msa.cute' to be distributed and are
 2026-08-12T02:14:03.3738553Z           already explicitly excluding 'tokenspeed_kernel.thirdparty.msa.cute' via
 2026-08-12T02:14:03.3738912Z           `find_namespace_packages(...)/find_namespace` or `find_packages(...)/find`,
 2026-08-12T02:14:03.3739271Z           you can try to use `exclude_package_data`, or `include-package-data=False` in
 2026-08-12T02:14:03.3739576Z           combination with a more fine grained `package-data` configuration.
-2026-08-12T02:14:03.3739724Z 
+2026-08-12T02:14:03.3739724Z
 2026-08-12T02:14:03.3739881Z           You can read more about "package data files" on setuptools documentation page:
-2026-08-12T02:14:03.3740042Z 
+2026-08-12T02:14:03.3740042Z
 2026-08-12T02:14:03.3740179Z           - https://setuptools.pypa.io/en/latest/userguide/datafiles.html
-2026-08-12T02:14:03.3740327Z 
-2026-08-12T02:14:03.3740329Z 
+2026-08-12T02:14:03.3740327Z
+2026-08-12T02:14:03.3740329Z
 2026-08-12T02:14:03.3740471Z           [^1]: For Python, any directory (with suitable naming) can be imported,
 2026-08-12T02:14:03.3740716Z                 even if it does not contain any `.py` files.
 2026-08-12T02:14:03.3740962Z                 On the other hand, currently there is no concept of package data
 2026-08-12T02:14:03.3741213Z                 directory, all directories are treated like packages.
 2026-08-12T02:14:03.3741536Z           ********************************************************************************
-2026-08-12T02:14:03.3741653Z 
+2026-08-12T02:14:03.3741653Z
 2026-08-12T02:14:03.3741706Z   !!
 2026-08-12T02:14:03.3741832Z     check.warn(importable)
 2026-08-12T02:14:03.3742291Z   /opt/venv/lib/python3.12/site-packages/setuptools/command/build_py.py:215: _Warning: Package 'tokenspeed_kernel.thirdparty.msa.cute.src' is absent from the `packages` configuration.
 2026-08-12T02:14:03.3742671Z   !!
-2026-08-12T02:14:03.3742728Z 
+2026-08-12T02:14:03.3742728Z
 2026-08-12T02:14:03.3742831Z           ********************************************************************************
 2026-08-12T02:14:03.3743018Z           ############################
 2026-08-12T02:14:03.3743235Z           # Package would be ignored #
 2026-08-12T02:14:03.3743390Z           ############################
 2026-08-12T02:14:03.3743672Z           Python recognizes 'tokenspeed_kernel.thirdparty.msa.cute.src' as an importable package[^1],
 2026-08-12T02:14:03.3744025Z           but it is absent from setuptools' `packages` configuration.
-2026-08-12T02:14:03.3744153Z 
+2026-08-12T02:14:03.3744153Z
 2026-08-12T02:14:03.3744313Z           This leads to an ambiguous overall configuration. If you want to distribute this
 2026-08-12T02:14:03.3744669Z           package, please make sure that 'tokenspeed_kernel.thirdparty.msa.cute.src' is explicitly added
 2026-08-12T02:14:03.3744948Z           to the `packages` configuration field.
-2026-08-12T02:14:03.3745053Z 
+2026-08-12T02:14:03.3745053Z
 2026-08-12T02:14:03.3745185Z           Alternatively, you can also rely on setuptools' discovery methods
 2026-08-12T02:14:03.3745467Z           (for example by using `find_namespace_packages(...)`/`find_namespace:`
 2026-08-12T02:14:03.3745700Z           instead of `find_packages(...)`/`find:`).
-2026-08-12T02:14:03.3745813Z 
+2026-08-12T02:14:03.3745813Z
 2026-08-12T02:14:03.3745971Z           You can read more about "package discovery" on setuptools documentation page:
-2026-08-12T02:14:03.3746130Z 
+2026-08-12T02:14:03.3746130Z
 2026-08-12T02:14:03.3746282Z           - https://setuptools.pypa.io/en/latest/userguide/package_discovery.html
-2026-08-12T02:14:03.3746442Z 
+2026-08-12T02:14:03.3746442Z
 2026-08-12T02:14:03.3746622Z           If you don't want 'tokenspeed_kernel.thirdparty.msa.cute.src' to be distributed and are
 2026-08-12T02:14:03.3746957Z           already explicitly excluding 'tokenspeed_kernel.thirdparty.msa.cute.src' via
 2026-08-12T02:14:03.3747270Z           `find_namespace_packages(...)/find_namespace` or `find_packages(...)/find`,
 2026-08-12T02:14:03.3747575Z           you can try to use `exclude_package_data`, or `include-package-data=False` in
 2026-08-12T02:14:03.3747867Z           combination with a more fine grained `package-data` configuration.
-2026-08-12T02:14:03.3748013Z 
+2026-08-12T02:14:03.3748013Z
 2026-08-12T02:14:03.3748170Z           You can read more about "package data files" on setuptools documentation page:
-2026-08-12T02:14:03.3748332Z 
+2026-08-12T02:14:03.3748332Z
 2026-08-12T02:14:03.3748468Z           - https://setuptools.pypa.io/en/latest/userguide/datafiles.html
-2026-08-12T02:14:03.3748610Z 
-2026-08-12T02:14:03.3748612Z 
+2026-08-12T02:14:03.3748610Z
+2026-08-12T02:14:03.3748612Z
 2026-08-12T02:14:03.3748752Z           [^1]: For Python, any directory (with suitable naming) can be imported,
 2026-08-12T02:14:03.3748992Z                 even if it does not contain any `.py` files.
 2026-08-12T02:14:03.3749236Z                 On the other hand, currently there is no concept of package data
 2026-08-12T02:14:03.3749487Z                 directory, all directories are treated like packages.
 2026-08-12T02:14:03.3749715Z           ********************************************************************************
-2026-08-12T02:14:03.3749836Z 
+2026-08-12T02:14:03.3749836Z
 2026-08-12T02:14:03.3749884Z   !!
 2026-08-12T02:14:03.3750004Z     check.warn(importable)
 2026-08-12T02:14:03.3750484Z   /opt/venv/lib/python3.12/site-packages/setuptools/command/build_py.py:215: _Warning: Package 'tokenspeed_kernel.thirdparty.msa.cute.src.common' is absent from the `packages` configuration.
 2026-08-12T02:14:03.3750877Z   !!
-2026-08-12T02:14:03.3750932Z 
+2026-08-12T02:14:03.3750932Z
 2026-08-12T02:14:03.3751038Z           ********************************************************************************
 2026-08-12T02:14:03.3751267Z           ############################
 2026-08-12T02:14:03.3751425Z           # Package would be ignored #
 2026-08-12T02:14:03.3751577Z           ############################
 2026-08-12T02:14:03.3751872Z           Python recognizes 'tokenspeed_kernel.thirdparty.msa.cute.src.common' as an importable package[^1],
 2026-08-12T02:14:03.3752193Z           but it is absent from setuptools' `packages` configuration.
-2026-08-12T02:14:03.3752323Z 
+2026-08-12T02:14:03.3752323Z
 2026-08-12T02:14:03.3752481Z           This leads to an ambiguous overall configuration. If you want to distribute this
 2026-08-12T02:14:03.3752853Z           package, please make sure that 'tokenspeed_kernel.thirdparty.msa.cute.src.common' is explicitly added
 2026-08-12T02:14:03.3753178Z           to the `packages` configuration field.
-2026-08-12T02:14:03.3753285Z 
+2026-08-12T02:14:03.3753285Z
 2026-08-12T02:14:03.3753415Z           Alternatively, you can also rely on setuptools' discovery methods
 2026-08-12T02:14:03.3753696Z           (for example by using `find_namespace_packages(...)`/`find_namespace:`
 2026-08-12T02:14:03.3753931Z           instead of `find_packages(...)`/`find:`).
-2026-08-12T02:14:03.3754087Z 
+2026-08-12T02:14:03.3754087Z
 2026-08-12T02:14:03.3754242Z           You can read more about "package discovery" on setuptools documentation page:
-2026-08-12T02:14:03.3754402Z 
+2026-08-12T02:14:03.3754402Z
 2026-08-12T02:14:03.3754553Z           - https://setuptools.pypa.io/en/latest/userguide/package_discovery.html
-2026-08-12T02:14:03.3754708Z 
+2026-08-12T02:14:03.3754708Z
 2026-08-12T02:14:03.3754905Z           If you don't want 'tokenspeed_kernel.thirdparty.msa.cute.src.common' to be distributed and are
 2026-08-12T02:14:03.3755271Z           already explicitly excluding 'tokenspeed_kernel.thirdparty.msa.cute.src.common' via
 2026-08-12T02:14:03.3755599Z           `find_namespace_packages(...)/find_namespace` or `find_packages(...)/find`,
 2026-08-12T02:14:03.3755903Z           you can try to use `exclude_package_data`, or `include-package-data=False` in
 2026-08-12T02:14:03.3756196Z           combination with a more fine grained `package-data` configuration.
-2026-08-12T02:14:03.3756343Z 
+2026-08-12T02:14:03.3756343Z
 2026-08-12T02:14:03.3756501Z           You can read more about "package data files" on setuptools documentation page:
-2026-08-12T02:14:03.3756660Z 
+2026-08-12T02:14:03.3756660Z
 2026-08-12T02:14:03.3756791Z           - https://setuptools.pypa.io/en/latest/userguide/datafiles.html
-2026-08-12T02:14:03.3756932Z 
-2026-08-12T02:14:03.3756934Z 
+2026-08-12T02:14:03.3756932Z
+2026-08-12T02:14:03.3756934Z
 2026-08-12T02:14:03.3757072Z           [^1]: For Python, any directory (with suitable naming) can be imported,
 2026-08-12T02:14:03.3757312Z                 even if it does not contain any `.py` files.
 2026-08-12T02:14:03.3757555Z                 On the other hand, currently there is no concept of package data
 2026-08-12T02:14:03.3757803Z                 directory, all directories are treated like packages.
 2026-08-12T02:14:03.3758035Z           ********************************************************************************
-2026-08-12T02:14:03.3758154Z 
+2026-08-12T02:14:03.3758154Z
 2026-08-12T02:14:03.3758202Z   !!
 2026-08-12T02:14:03.3758321Z     check.warn(importable)
 2026-08-12T02:14:03.3758794Z   /opt/venv/lib/python3.12/site-packages/setuptools/command/build_py.py:215: _Warning: Package 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100' is absent from the `packages` configuration.
 2026-08-12T02:14:03.3759180Z   !!
-2026-08-12T02:14:03.3759231Z 
+2026-08-12T02:14:03.3759231Z
 2026-08-12T02:14:03.3759337Z           ********************************************************************************
 2026-08-12T02:14:03.3759521Z           ############################
 2026-08-12T02:14:03.3759678Z           # Package would be ignored #
 2026-08-12T02:14:03.3759831Z           ############################
 2026-08-12T02:14:03.3760118Z           Python recognizes 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100' as an importable package[^1],
 2026-08-12T02:14:03.3760432Z           but it is absent from setuptools' `packages` configuration.
-2026-08-12T02:14:03.3760557Z 
+2026-08-12T02:14:03.3760557Z
 2026-08-12T02:14:03.3760714Z           This leads to an ambiguous overall configuration. If you want to distribute this
 2026-08-12T02:14:03.3761078Z           package, please make sure that 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100' is explicitly added
 2026-08-12T02:14:03.3770971Z           to the `packages` configuration field.
-2026-08-12T02:14:03.3771081Z 
+2026-08-12T02:14:03.3771081Z
 2026-08-12T02:14:03.3771381Z           Alternatively, you can also rely on setuptools' discovery methods
 2026-08-12T02:14:03.3771682Z           (for example by using `find_namespace_packages(...)`/`find_namespace:`
 2026-08-12T02:14:03.3771919Z           instead of `find_packages(...)`/`find:`).
-2026-08-12T02:14:03.3772023Z 
+2026-08-12T02:14:03.3772023Z
 2026-08-12T02:14:03.3772184Z           You can read more about "package discovery" on setuptools documentation page:
-2026-08-12T02:14:03.3772340Z 
+2026-08-12T02:14:03.3772340Z
 2026-08-12T02:14:03.3772489Z           - https://setuptools.pypa.io/en/latest/userguide/package_discovery.html
-2026-08-12T02:14:03.3772689Z 
+2026-08-12T02:14:03.3772689Z
 2026-08-12T02:14:03.3772883Z           If you don't want 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100' to be distributed and are
 2026-08-12T02:14:03.3773250Z           already explicitly excluding 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100' via
 2026-08-12T02:14:03.3773572Z           `find_namespace_packages(...)/find_namespace` or `find_packages(...)/find`,
 2026-08-12T02:14:03.3773877Z           you can try to use `exclude_package_data`, or `include-package-data=False` in
 2026-08-12T02:14:03.3774208Z           combination with a more fine grained `package-data` configuration.
-2026-08-12T02:14:03.3774350Z 
+2026-08-12T02:14:03.3774350Z
 2026-08-12T02:14:03.3774502Z           You can read more about "package data files" on setuptools documentation page:
-2026-08-12T02:14:03.3774659Z 
+2026-08-12T02:14:03.3774659Z
 2026-08-12T02:14:03.3774789Z           - https://setuptools.pypa.io/en/latest/userguide/datafiles.html
-2026-08-12T02:14:03.3774928Z 
-2026-08-12T02:14:03.3774930Z 
+2026-08-12T02:14:03.3774928Z
+2026-08-12T02:14:03.3774930Z
 2026-08-12T02:14:03.3775069Z           [^1]: For Python, any directory (with suitable naming) can be imported,
 2026-08-12T02:14:03.3775304Z                 even if it does not contain any `.py` files.
 2026-08-12T02:14:03.3775545Z                 On the other hand, currently there is no concept of package data
 2026-08-12T02:14:03.3775793Z                 directory, all directories are treated like packages.
 2026-08-12T02:14:03.3776013Z           ********************************************************************************
-2026-08-12T02:14:03.3776128Z 
+2026-08-12T02:14:03.3776128Z
 2026-08-12T02:14:03.3776172Z   !!
 2026-08-12T02:14:03.3776285Z     check.warn(importable)
 2026-08-12T02:14:03.3776775Z   /opt/venv/lib/python3.12/site-packages/setuptools/command/build_py.py:215: _Warning: Package 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.build_k2q_csr' is absent from the `packages` configuration.
 2026-08-12T02:14:03.3777204Z   !!
-2026-08-12T02:14:03.3777256Z 
+2026-08-12T02:14:03.3777256Z
 2026-08-12T02:14:03.3777357Z           ********************************************************************************
 2026-08-12T02:14:03.3777537Z           ############################
 2026-08-12T02:14:03.3777689Z           # Package would be ignored #
 2026-08-12T02:14:03.3777835Z           ############################
 2026-08-12T02:14:03.3778150Z           Python recognizes 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.build_k2q_csr' as an importable package[^1],
 2026-08-12T02:14:03.3778492Z           but it is absent from setuptools' `packages` configuration.
-2026-08-12T02:14:03.3778617Z 
+2026-08-12T02:14:03.3778617Z
 2026-08-12T02:14:03.3778775Z           This leads to an ambiguous overall configuration. If you want to distribute this
 2026-08-12T02:14:03.3779171Z           package, please make sure that 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.build_k2q_csr' is explicitly added
 2026-08-12T02:14:03.3779485Z           to the `packages` configuration field.
-2026-08-12T02:14:03.3779587Z 
+2026-08-12T02:14:03.3779587Z
 2026-08-12T02:14:03.3779720Z           Alternatively, you can also rely on setuptools' discovery methods
 2026-08-12T02:14:03.3779997Z           (for example by using `find_namespace_packages(...)`/`find_namespace:`
 2026-08-12T02:14:03.3780224Z           instead of `find_packages(...)`/`find:`).
-2026-08-12T02:14:03.3780330Z 
+2026-08-12T02:14:03.3780330Z
 2026-08-12T02:14:03.3780482Z           You can read more about "package discovery" on setuptools documentation page:
-2026-08-12T02:14:03.3780781Z 
+2026-08-12T02:14:03.3780781Z
 2026-08-12T02:14:03.3780929Z           - https://setuptools.pypa.io/en/latest/userguide/package_discovery.html
-2026-08-12T02:14:03.3781084Z 
+2026-08-12T02:14:03.3781084Z
 2026-08-12T02:14:03.3781308Z           If you don't want 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.build_k2q_csr' to be distributed and are
 2026-08-12T02:14:03.3781722Z           already explicitly excluding 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.build_k2q_csr' via
 2026-08-12T02:14:03.3782073Z           `find_namespace_packages(...)/find_namespace` or `find_packages(...)/find`,
 2026-08-12T02:14:03.3782372Z           you can try to use `exclude_package_data`, or `include-package-data=False` in
 2026-08-12T02:14:03.3782699Z           combination with a more fine grained `package-data` configuration.
-2026-08-12T02:14:03.3782843Z 
+2026-08-12T02:14:03.3782843Z
 2026-08-12T02:14:03.3782995Z           You can read more about "package data files" on setuptools documentation page:
-2026-08-12T02:14:03.3783155Z 
+2026-08-12T02:14:03.3783155Z
 2026-08-12T02:14:03.3783284Z           - https://setuptools.pypa.io/en/latest/userguide/datafiles.html
-2026-08-12T02:14:03.3783430Z 
-2026-08-12T02:14:03.3783432Z 
+2026-08-12T02:14:03.3783430Z
+2026-08-12T02:14:03.3783432Z
 2026-08-12T02:14:03.3783566Z           [^1]: For Python, any directory (with suitable naming) can be imported,
 2026-08-12T02:14:03.3783807Z                 even if it does not contain any `.py` files.
 2026-08-12T02:14:03.3784097Z                 On the other hand, currently there is no concept of package data
 2026-08-12T02:14:03.3784342Z                 directory, all directories are treated like packages.
 2026-08-12T02:14:03.3784566Z           ********************************************************************************
-2026-08-12T02:14:03.3784682Z 
+2026-08-12T02:14:03.3784682Z
 2026-08-12T02:14:03.3784729Z   !!
 2026-08-12T02:14:03.3784850Z     check.warn(importable)
 2026-08-12T02:14:03.3785326Z   /opt/venv/lib/python3.12/site-packages/setuptools/command/build_py.py:215: _Warning: Package 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.fwd' is absent from the `packages` configuration.
 2026-08-12T02:14:03.3785725Z   !!
-2026-08-12T02:14:03.3785778Z 
+2026-08-12T02:14:03.3785778Z
 2026-08-12T02:14:03.3785879Z           ********************************************************************************
 2026-08-12T02:14:03.3786059Z           ############################
 2026-08-12T02:14:03.3786219Z           # Package would be ignored #
 2026-08-12T02:14:03.3786371Z           ############################
 2026-08-12T02:14:03.3786667Z           Python recognizes 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.fwd' as an importable package[^1],
 2026-08-12T02:14:03.3786990Z           but it is absent from setuptools' `packages` configuration.
-2026-08-12T02:14:03.3787116Z 
+2026-08-12T02:14:03.3787116Z
 2026-08-12T02:14:03.3787277Z           This leads to an ambiguous overall configuration. If you want to distribute this
 2026-08-12T02:14:03.3787656Z           package, please make sure that 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.fwd' is explicitly added
 2026-08-12T02:14:03.3787952Z           to the `packages` configuration field.
-2026-08-12T02:14:03.3788054Z 
+2026-08-12T02:14:03.3788054Z
 2026-08-12T02:14:03.3788192Z           Alternatively, you can also rely on setuptools' discovery methods
 2026-08-12T02:14:03.3788465Z           (for example by using `find_namespace_packages(...)`/`find_namespace:`
 2026-08-12T02:14:03.3788692Z           instead of `find_packages(...)`/`find:`).
-2026-08-12T02:14:03.3788797Z 
+2026-08-12T02:14:03.3788797Z
 2026-08-12T02:14:03.3788950Z           You can read more about "package discovery" on setuptools documentation page:
-2026-08-12T02:14:03.3789107Z 
+2026-08-12T02:14:03.3789107Z
 2026-08-12T02:14:03.3789258Z           - https://setuptools.pypa.io/en/latest/userguide/package_discovery.html
-2026-08-12T02:14:03.3789411Z 
+2026-08-12T02:14:03.3789411Z
 2026-08-12T02:14:03.3789613Z           If you don't want 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.fwd' to be distributed and are
 2026-08-12T02:14:03.3789992Z           already explicitly excluding 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.fwd' via
 2026-08-12T02:14:03.3790321Z           `find_namespace_packages(...)/find_namespace` or `find_packages(...)/find`,
 2026-08-12T02:14:03.3790619Z           you can try to use `exclude_package_data`, or `include-package-data=False` in
 2026-08-12T02:14:03.3790967Z           combination with a more fine grained `package-data` configuration.
-2026-08-12T02:14:03.3791110Z 
+2026-08-12T02:14:03.3791110Z
 2026-08-12T02:14:03.3791262Z           You can read more about "package data files" on setuptools documentation page:
-2026-08-12T02:14:03.3791423Z 
+2026-08-12T02:14:03.3791423Z
 2026-08-12T02:14:03.3791557Z           - https://setuptools.pypa.io/en/latest/userguide/datafiles.html
-2026-08-12T02:14:03.3791697Z 
-2026-08-12T02:14:03.3791699Z 
+2026-08-12T02:14:03.3791697Z
+2026-08-12T02:14:03.3791699Z
 2026-08-12T02:14:03.3791834Z           [^1]: For Python, any directory (with suitable naming) can be imported,
 2026-08-12T02:14:03.3792071Z                 even if it does not contain any `.py` files.
 2026-08-12T02:14:03.3792346Z                 On the other hand, currently there is no concept of package data
 2026-08-12T02:14:03.3792592Z                 directory, all directories are treated like packages.
 2026-08-12T02:14:03.3792813Z           ********************************************************************************
-2026-08-12T02:14:03.3792936Z 
+2026-08-12T02:14:03.3792936Z
 2026-08-12T02:14:03.3792981Z   !!
 2026-08-12T02:14:03.3793096Z     check.warn(importable)
 2026-08-12T02:14:03.3793578Z   /opt/venv/lib/python3.12/site-packages/setuptools/command/build_py.py:215: _Warning: Package 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.fwd_decode' is absent from the `packages` configuration.
 2026-08-12T02:14:03.3793977Z   !!
-2026-08-12T02:14:03.3794072Z 
+2026-08-12T02:14:03.3794072Z
 2026-08-12T02:14:03.3794176Z           ********************************************************************************
 2026-08-12T02:14:03.3794353Z           ############################
 2026-08-12T02:14:03.3794508Z           # Package would be ignored #
 2026-08-12T02:14:03.3794658Z           ############################
 2026-08-12T02:14:03.3794969Z           Python recognizes 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.fwd_decode' as an importable package[^1],
 2026-08-12T02:14:03.3795301Z           but it is absent from setuptools' `packages` configuration.
-2026-08-12T02:14:03.3795432Z 
+2026-08-12T02:14:03.3795432Z
 2026-08-12T02:14:03.3795588Z           This leads to an ambiguous overall configuration. If you want to distribute this
 2026-08-12T02:14:03.3795980Z           package, please make sure that 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.fwd_decode' is explicitly added
 2026-08-12T02:14:03.3796285Z           to the `packages` configuration field.
-2026-08-12T02:14:03.3796387Z 
+2026-08-12T02:14:03.3796387Z
 2026-08-12T02:14:03.3796517Z           Alternatively, you can also rely on setuptools' discovery methods
 2026-08-12T02:14:03.3796795Z           (for example by using `find_namespace_packages(...)`/`find_namespace:`
 2026-08-12T02:14:03.3797023Z           instead of `find_packages(...)`/`find:`).
-2026-08-12T02:14:03.3797124Z 
+2026-08-12T02:14:03.3797124Z
 2026-08-12T02:14:03.3797280Z           You can read more about "package discovery" on setuptools documentation page:
-2026-08-12T02:14:03.3797437Z 
+2026-08-12T02:14:03.3797437Z
 2026-08-12T02:14:03.3797589Z           - https://setuptools.pypa.io/en/latest/userguide/package_discovery.html
-2026-08-12T02:14:03.3797744Z 
+2026-08-12T02:14:03.3797744Z
 2026-08-12T02:14:03.3797959Z           If you don't want 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.fwd_decode' to be distributed and are
 2026-08-12T02:14:03.3798365Z           already explicitly excluding 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.fwd_decode' via
 2026-08-12T02:14:03.3798706Z           `find_namespace_packages(...)/find_namespace` or `find_packages(...)/find`,
 2026-08-12T02:14:03.3799005Z           you can try to use `exclude_package_data`, or `include-package-data=False` in
 2026-08-12T02:14:03.3799296Z           combination with a more fine grained `package-data` configuration.
-2026-08-12T02:14:03.3799436Z 
+2026-08-12T02:14:03.3799436Z
 2026-08-12T02:14:03.3799590Z           You can read more about "package data files" on setuptools documentation page:
-2026-08-12T02:14:03.3799747Z 
+2026-08-12T02:14:03.3799747Z
 2026-08-12T02:14:03.3799881Z           - https://setuptools.pypa.io/en/latest/userguide/datafiles.html
-2026-08-12T02:14:03.3800021Z 
-2026-08-12T02:14:03.3800023Z 
+2026-08-12T02:14:03.3800021Z
+2026-08-12T02:14:03.3800023Z
 2026-08-12T02:14:03.3800158Z           [^1]: For Python, any directory (with suitable naming) can be imported,
 2026-08-12T02:14:03.3800451Z                 even if it does not contain any `.py` files.
 2026-08-12T02:14:03.3800690Z                 On the other hand, currently there is no concept of package data
 2026-08-12T02:14:03.3800934Z                 directory, all directories are treated like packages.
 2026-08-12T02:14:03.3806369Z           ********************************************************************************
-2026-08-12T02:14:03.3806488Z 
+2026-08-12T02:14:03.3806488Z
 2026-08-12T02:14:03.3806550Z   !!
 2026-08-12T02:14:03.3806689Z     check.warn(importable)
 2026-08-12T02:14:03.3807324Z   /opt/venv/lib/python3.12/site-packages/setuptools/command/build_py.py:215: _Warning: Package 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.fwd_decode.build_decode_schedule' is absent from the `packages` configuration.
 2026-08-12T02:14:03.3807773Z   !!
-2026-08-12T02:14:03.3807824Z 
+2026-08-12T02:14:03.3807824Z
 2026-08-12T02:14:03.3807925Z           ********************************************************************************
 2026-08-12T02:14:03.3808110Z           ############################
 2026-08-12T02:14:03.3808266Z           # Package would be ignored #
 2026-08-12T02:14:03.3808414Z           ############################
 2026-08-12T02:14:03.3808766Z           Python recognizes 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.fwd_decode.build_decode_schedule' as an importable package[^1],
 2026-08-12T02:14:03.3809137Z           but it is absent from setuptools' `packages` configuration.
-2026-08-12T02:14:03.3809264Z 
+2026-08-12T02:14:03.3809264Z
 2026-08-12T02:14:03.3809422Z           This leads to an ambiguous overall configuration. If you want to distribute this
 2026-08-12T02:14:03.3809857Z           package, please make sure that 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.fwd_decode.build_decode_schedule' is explicitly added
 2026-08-12T02:14:03.3810206Z           to the `packages` configuration field.
-2026-08-12T02:14:03.3810307Z 
+2026-08-12T02:14:03.3810307Z
 2026-08-12T02:14:03.3810440Z           Alternatively, you can also rely on setuptools' discovery methods
 2026-08-12T02:14:03.3810717Z           (for example by using `find_namespace_packages(...)`/`find_namespace:`
 2026-08-12T02:14:03.3810948Z           instead of `find_packages(...)`/`find:`).
-2026-08-12T02:14:03.3811052Z 
+2026-08-12T02:14:03.3811052Z
 2026-08-12T02:14:03.3811202Z           You can read more about "package discovery" on setuptools documentation page:
-2026-08-12T02:14:03.3811363Z 
+2026-08-12T02:14:03.3811363Z
 2026-08-12T02:14:03.3811510Z           - https://setuptools.pypa.io/en/latest/userguide/package_discovery.html
-2026-08-12T02:14:03.3811666Z 
+2026-08-12T02:14:03.3811666Z
 2026-08-12T02:14:03.3811925Z           If you don't want 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.fwd_decode.build_decode_schedule' to be distributed and are
 2026-08-12T02:14:03.3812405Z           already explicitly excluding 'tokenspeed_kernel.thirdparty.msa.cute.src.sm100.fwd_decode.build_decode_schedule' via
 2026-08-12T02:14:03.3812786Z           `find_namespace_packages(...)/find_namespace` or `find_packages(...)/find`,
 2026-08-12T02:14:03.3813085Z           you can try to use `exclude_package_data`, or `include-package-data=False` in
 2026-08-12T02:14:03.3813376Z           combination with a more fine grained `package-data` configuration.
-2026-08-12T02:14:03.3813523Z 
+2026-08-12T02:14:03.3813523Z
 2026-08-12T02:14:03.3813701Z           You can read more about "package data files" on setuptools documentation page:
-2026-08-12T02:14:03.3813858Z 
+2026-08-12T02:14:03.3813858Z
 2026-08-12T02:14:03.3814032Z           - https://setuptools.pypa.io/en/latest/userguide/datafiles.html
-2026-08-12T02:14:03.3814173Z 
-2026-08-12T02:14:03.3814175Z 
+2026-08-12T02:14:03.3814173Z
+2026-08-12T02:14:03.3814175Z
 2026-08-12T02:14:03.3814314Z           [^1]: For Python, any directory (with suitable naming) can be imported,
 2026-08-12T02:14:03.3814551Z                 even if it does not contain any `.py` files.
 2026-08-12T02:14:03.3814789Z                 On the other hand, currently there is no concept of package data
 2026-08-12T02:14:03.3815033Z                 directory, all directories are treated like packages.
 2026-08-12T02:14:03.3815256Z           ********************************************************************************
-2026-08-12T02:14:03.3815374Z 
+2026-08-12T02:14:03.3815374Z
 2026-08-12T02:14:03.3815486Z   !!
 2026-08-12T02:14:03.3815600Z     check.warn(importable)
 2026-08-12T02:14:03.3815867Z   copying tokenspeed_kernel/thirdparty/msa/README.md -> build/lib/tokenspeed_kernel/thirdparty/msa
@@ -2202,7 +2202,7 @@
 2026-08-12T02:14:19.9266823Z       Removing file or directory /opt/venv/lib/python3.12/site-packages/pandas-3.0.3.dist-info/
 2026-08-12T02:14:19.9267352Z       Removing file or directory /opt/venv/lib/python3.12/site-packages/pandas/
 2026-08-12T02:14:19.9267826Z       Successfully uninstalled pandas-3.0.3
-2026-08-12T02:14:19.9267989Z 
+2026-08-12T02:14:19.9267989Z
 2026-08-12T02:14:19.9269140Z Successfully installed Arpeggio-2.0.3 caliper-reader-0.4.1 certifi-2026.7.22 charset_normalizer-3.4.9 dill-0.4.1 idna-3.18 llnl-hatchet-2026.1.0 multiprocess-0.70.19 pandas-2.3.3 psutil-7.2.2 pydot-4.0.1 pytz-2026.3.post1 requests-2.34.2 ruff-0.16.2 textX-4.4.0 tokenspeed-iris-0.0.0.post20260511 tokenspeed-proton-3.8.10.post20260721 tokenspeed-triton-3.8.10.post20260721 tokenspeed-tritonblas-0.1.0.post20260510 tokenspeed_kernel-0.1.3.dev20260812+git67ba425b tzdata-2026.3 urllib3-2.7.0
 2026-08-12T02:14:19.9270292Z === Step 5: Install TokenSpeed Scheduler ===
 2026-08-12T02:14:19.9270613Z Collecting cmake
@@ -2524,9 +2524,9 @@
 2026-08-12T02:14:32.1956062Z   Stored in directory: /tmp/pip-ephem-wheel-cache-ihdll0ay/wheels/0e/9f/e3/b5cadd674ca8f21a6035403405e73af6902a1a1c9c917ee7ed
 2026-08-12T02:14:32.1956541Z Successfully built tokenspeed
 2026-08-12T02:14:32.1959454Z Installing collected packages: py-spy, uvloop, uv, typing-inspection, truststore, torch_memory_saver, sniffio, shellingham, setproctitle, safetensors, regex, pyzmq, python-multipart, pydantic-core, pybind11, pybase64, protobuf, propcache, prometheus-client, partial-json-parser, orjson, objprint, multidict, msgspec, msgpack, mdurl, loguru, jiter, hf-xet, hf_transfer, h11, grpcio, frozenlist, einops, distro, click, attrs, apache-tvm-ffi, anyio, annotated-types, annotated-doc, aiohappyeyeballs, yarl, viztracer, uvicorn, tokenspeed-smg-grpc-proto, tiktoken, starlette, pytest-asyncio, pydantic, modelscope-hub, markdown-it-py, httpcore2, httpcore, grpcio-reflection, grpcio-health-checking, aiosignal, tokenspeed-smg-grpc-servicer, tokenspeed-smg, rich, openai-harmony, modelscope, httpx2, httpx, fastapi, aiohttp, typer, tokenspeed-mooncake, openai, huggingface_hub, tokenizers, accelerate, transformers, xgrammar, peft, compressed-tensors, tokenspeed
-2026-08-12T02:14:32.1961708Z 
+2026-08-12T02:14:32.1961708Z
 2026-08-12T02:14:32.1965774Z Successfully installed accelerate-1.14.0 aiohappyeyeballs-2.7.1 aiohttp-3.14.3 aiosignal-1.4.0 annotated-doc-0.0.5 annotated-types-0.8.0 anyio-4.14.2 apache-tvm-ffi-0.1.13.post3 attrs-26.1.0 click-8.4.2 compressed-tensors-0.18.0 distro-1.9.0 einops-0.8.2 fastapi-0.141.1 frozenlist-1.8.0 grpcio-1.83.0 grpcio-health-checking-1.81.1 grpcio-reflection-1.81.1 h11-0.16.0 hf-xet-1.6.0 hf_transfer-0.1.9 httpcore-1.0.9 httpcore2-2.10.0 httpx-0.28.1 httpx2-2.10.0 huggingface_hub-1.27.0 jiter-0.16.0 loguru-0.7.3 markdown-it-py-4.2.0 mdurl-0.1.2 modelscope-1.39.1 modelscope-hub-0.2.0 msgpack-1.2.1 msgspec-0.21.1 multidict-6.7.1 objprint-0.3.0 openai-3.0.0 openai-harmony-0.0.8 orjson-3.11.9 partial-json-parser-0.2.1.1.post7 peft-0.20.0 prometheus-client-0.26.0 propcache-0.5.2 protobuf-6.33.6 py-spy-0.4.2 pybase64-1.5.0 pybind11-3.1.0 pydantic-2.13.4 pydantic-core-2.46.4 pytest-asyncio-1.4.0 python-multipart-0.0.32 pyzmq-27.1.0 regex-2026.7.19 rich-15.0.0 safetensors-0.8.0 setproctitle-1.3.7 shellingham-1.5.4 sniffio-1.3.1 starlette-1.6.0 tiktoken-0.13.0 tokenizers-0.22.2 tokenspeed-0.1.0 tokenspeed-mooncake-0.3.12.post20260810 tokenspeed-smg-1.9.0.post20260811 tokenspeed-smg-grpc-proto-0.4.14.post20260811 tokenspeed-smg-grpc-servicer-0.8.0.post20260811 torch_memory_saver-0.0.9.post1 transformers-5.12.0 truststore-0.10.4 typer-0.27.1 typing-inspection-0.4.3 uv-0.12.3 uvicorn-0.52.1 uvloop-0.22.1 viztracer-1.1.1 xgrammar-0.2.3 yarl-1.24.5
-2026-08-12T02:14:32.4225394Z 
+2026-08-12T02:14:32.4225394Z
 2026-08-12T02:14:32.4225715Z ==========================================
 2026-08-12T02:14:32.4226074Z ROCm install completed (GFX_ARCH=gfx950)
 2026-08-12T02:14:32.4226368Z ==========================================
@@ -2591,14 +2591,14 @@
 2026-08-12T02:14:39.8025979Z ninja-build is already the newest version (1.11.1-2).
 2026-08-12T02:14:39.8026335Z 0 upgraded, 0 newly installed, 0 to remove and 78 not upgraded.
 2026-08-12T02:14:39.8026657Z $ bash test/ci_system/cleanup_amd_gpu_state.sh
-2026-08-12T02:14:43.3209865Z [cleanup_amd_gpu_state] self_pid=1356 ancestors= 1356 1355 1098 1096 44 14 10 1 
-2026-08-12T02:14:43.3210212Z 
+2026-08-12T02:14:43.3209865Z [cleanup_amd_gpu_state] self_pid=1356 ancestors= 1356 1355 1098 1096 44 14 10 1
+2026-08-12T02:14:43.3210212Z
 2026-08-12T02:14:43.3210356Z ==========================================================================
 2026-08-12T02:14:43.3210629Z   GPU state BEFORE cleanup
 2026-08-12T02:14:43.3210878Z ==========================================================================
 2026-08-12T02:14:43.3211147Z ----- rocm-smi --showid -----
-2026-08-12T02:14:43.3211276Z 
-2026-08-12T02:14:43.3211280Z 
+2026-08-12T02:14:43.3211276Z
+2026-08-12T02:14:43.3211280Z
 2026-08-12T02:14:43.3211483Z ============================ ROCm System Management Interface ============================
 2026-08-12T02:14:43.3211861Z =========================================== ID ===========================================
 2026-08-12T02:14:43.3212179Z GPU[0]		: Device Name: 		AMD Radeon Graphics
@@ -2623,34 +2623,34 @@
 2026-08-12T02:14:43.3216520Z GPU[3]		: GUID: 		55966
 2026-08-12T02:14:43.3216769Z ==========================================================================================
 2026-08-12T02:14:43.3217118Z ================================== End of ROCm SMI Log ===================================
-2026-08-12T02:14:43.3217308Z 
+2026-08-12T02:14:43.3217308Z
 2026-08-12T02:14:43.3217433Z ----- rocm-smi --showpids -----
-2026-08-12T02:14:43.3217559Z 
-2026-08-12T02:14:43.3217562Z 
+2026-08-12T02:14:43.3217559Z
+2026-08-12T02:14:43.3217562Z
 2026-08-12T02:14:43.3217752Z ============================ ROCm System Management Interface ============================
 2026-08-12T02:14:43.3218119Z ===================================== KFD Processes ======================================
 2026-08-12T02:14:43.3218399Z KFD process information:
-2026-08-12T02:14:43.3218686Z PID    	PROCESS NAME	GPU(s)	VRAM USED	SDMA USED	CU OCCUPANCY	
-2026-08-12T02:14:43.3219026Z 1311488	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3219339Z 1311486	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3219648Z 1318918	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3219955Z 1308856	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3220587Z 1318924	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3220897Z 1310870	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3221200Z 1311487	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3221506Z 1318922	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3221812Z 1311485	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3222117Z 1318920	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3222534Z 2356880	UNKNOWN     	0     	0        	0        	0           	
+2026-08-12T02:14:43.3218686Z PID    	PROCESS NAME	GPU(s)	VRAM USED	SDMA USED	CU OCCUPANCY
+2026-08-12T02:14:43.3219026Z 1311488	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3219339Z 1311486	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3219648Z 1318918	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3219955Z 1308856	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3220587Z 1318924	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3220897Z 1310870	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3221200Z 1311487	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3221506Z 1318922	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3221812Z 1311485	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3222117Z 1318920	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3222534Z 2356880	UNKNOWN     	0     	0        	0        	0
 2026-08-12T02:14:43.3222843Z ==========================================================================================
 2026-08-12T02:14:43.3223188Z ================================== End of ROCm SMI Log ===================================
-2026-08-12T02:14:43.3223372Z 
-2026-08-12T02:14:43.3223375Z 
+2026-08-12T02:14:43.3223372Z
+2026-08-12T02:14:43.3223375Z
 2026-08-12T02:14:43.3223509Z ==========================================================================
 2026-08-12T02:14:43.3223784Z   Discovering GPU-holding PIDs
 2026-08-12T02:14:43.3224089Z ==========================================================================
-2026-08-12T02:14:43.3224520Z GPU-holding PIDs: 1308856 1310870 1311485 1311486 1311487 1311488 1318918 1318920 1318922 1318924 2356880 
-2026-08-12T02:14:43.3224795Z 
+2026-08-12T02:14:43.3224520Z GPU-holding PIDs: 1308856 1310870 1311485 1311486 1311487 1311488 1318918 1318920 1318922 1318924 2356880
+2026-08-12T02:14:43.3224795Z
 2026-08-12T02:14:43.3224886Z ----- forensic ps -----
 2026-08-12T02:14:43.3225090Z   pid=1308856 (already gone)
 2026-08-12T02:14:43.3225295Z   pid=1310870 (already gone)
@@ -2663,44 +2663,44 @@
 2026-08-12T02:14:43.3226694Z   pid=1318922 (already gone)
 2026-08-12T02:14:43.3227001Z   pid=1318924 (already gone)
 2026-08-12T02:14:43.3227204Z   pid=2356880 (already gone)
-2026-08-12T02:14:43.3227311Z 
-2026-08-12T02:14:43.3227314Z 
+2026-08-12T02:14:43.3227311Z
+2026-08-12T02:14:43.3227314Z
 2026-08-12T02:14:43.3227447Z ==========================================================================
 2026-08-12T02:14:43.3227701Z   Killing GPU-holding PIDs
 2026-08-12T02:14:43.3227940Z ==========================================================================
 2026-08-12T02:14:43.3228181Z Sending SIGTERM...
-2026-08-12T02:14:43.3228280Z 
+2026-08-12T02:14:43.3228280Z
 2026-08-12T02:14:43.3228405Z ==========================================================================
 2026-08-12T02:14:43.3228653Z   GPU state AFTER cleanup
 2026-08-12T02:14:43.3228892Z ==========================================================================
 2026-08-12T02:14:43.3229146Z ----- rocm-smi --showpids -----
-2026-08-12T02:14:43.3229271Z 
-2026-08-12T02:14:43.3229274Z 
+2026-08-12T02:14:43.3229271Z
+2026-08-12T02:14:43.3229274Z
 2026-08-12T02:14:43.3229468Z ============================ ROCm System Management Interface ============================
 2026-08-12T02:14:43.3229834Z ===================================== KFD Processes ======================================
 2026-08-12T02:14:43.3230116Z KFD process information:
-2026-08-12T02:14:43.3230391Z PID    	PROCESS NAME	GPU(s)	VRAM USED	SDMA USED	CU OCCUPANCY	
-2026-08-12T02:14:43.3230722Z 1311488	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3231036Z 1311486	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3231344Z 1318918	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3231650Z 1308856	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3231955Z 1318924	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3232263Z 1310870	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3232568Z 1311487	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3232877Z 1318922	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3233184Z 1311485	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3233563Z 1318920	UNKNOWN     	0     	0        	0        	UNKNOWN     	
-2026-08-12T02:14:43.3233862Z 2356880	UNKNOWN     	0     	0        	0        	0           	
+2026-08-12T02:14:43.3230391Z PID    	PROCESS NAME	GPU(s)	VRAM USED	SDMA USED	CU OCCUPANCY
+2026-08-12T02:14:43.3230722Z 1311488	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3231036Z 1311486	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3231344Z 1318918	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3231650Z 1308856	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3231955Z 1318924	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3232263Z 1310870	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3232568Z 1311487	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3232877Z 1318922	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3233184Z 1311485	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3233563Z 1318920	UNKNOWN     	0     	0        	0        	UNKNOWN
+2026-08-12T02:14:43.3233862Z 2356880	UNKNOWN     	0     	0        	0        	0
 2026-08-12T02:14:43.3234214Z ==========================================================================================
 2026-08-12T02:14:43.3234556Z ================================== End of ROCm SMI Log ===================================
-2026-08-12T02:14:43.3234745Z 
+2026-08-12T02:14:43.3234745Z
 2026-08-12T02:14:43.3235994Z $ if ! command -v lsof >/dev/null 2>&1; then sudo apt-get update -q && sudo apt-get install -y lsof; fi; pids=$(lsof -tiTCP:8000 -sTCP:LISTEN 2>/dev/null || true); if [ -n "$pids" ]; then echo "Killing stale listener(s) on port 8000: $pids"; kill -TERM $pids 2>/dev/null || true; sleep 2; pids=$(lsof -tiTCP:8000 -sTCP:LISTEN 2>/dev/null || true); if [ -n "$pids" ]; then kill -KILL $pids 2>/dev/null || true; fi; fi
 2026-08-12T02:14:43.3437070Z $ bash -lc 'set -o pipefail; { ts serve --model amd/Qwen3.5-397B-A17B-MXFP4 --tp 4 --max-model-len 80000 --max-num-seqs 16 --trust-remote-code --quantization mxfp4 --sampling-backend greedy --disable-kvstore --kvstore-ratio 0.0 --enable-cache-report --host 127.0.0.1 --port 8000 --policy round_robin --gateway-startup-timeout 600; } 2>&1 | tee -a /home/runner/_work/tokenspeed/tokenspeed/run-31549822483-1-eval-qwen3.5-397b-a17b-mxfp4-aime25-amd-mi35x-4gpu-test/.ci-artifacts/server.log'
-2026-08-12T02:14:46.2664851Z ████████  ██████  ██   ██ ███████ ███    ██  ███████ ██████  ███████ ███████ ██████  
-2026-08-12T02:14:46.2665211Z    ██    ██    ██ ██  ██  ██      ████   ██  ██      ██   ██ ██      ██      ██   ██ 
-2026-08-12T02:14:46.2665528Z    ██    ██    ██ █████   █████   ██ ██  ██  ███████ ██████  █████   █████   ██   ██ 
-2026-08-12T02:14:46.2665786Z    ██    ██    ██ ██  ██  ██      ██  ██ ██       ██ ██      ██      ██      ██   ██ 
-2026-08-12T02:14:46.2666050Z    ██     ██████  ██   ██ ███████ ██   ████  ███████ ██      ███████ ███████ ██████  
+2026-08-12T02:14:46.2664851Z ████████  ██████  ██   ██ ███████ ███    ██  ███████ ██████  ███████ ███████ ██████
+2026-08-12T02:14:46.2665211Z    ██    ██    ██ ██  ██  ██      ████   ██  ██      ██   ██ ██      ██      ██   ██
+2026-08-12T02:14:46.2665528Z    ██    ██    ██ █████   █████   ██ ██  ██  ███████ ██████  █████   █████   ██   ██
+2026-08-12T02:14:46.2665786Z    ██    ██    ██ ██  ██  ██      ██  ██ ██       ██ ██      ██      ██      ██   ██
+2026-08-12T02:14:46.2666050Z    ██     ██████  ██   ██ ███████ ██   ████  ███████ ██      ███████ ███████ ██████
 2026-08-12T02:14:46.2666315Z                         Tokens at the speed of light · v0.1.0
 2026-08-12T02:14:51.5502621Z [ts] [38;20m[2026-08-12 02:14:51,549 None] - INFO - Inferred world_size (4) from attn_tp_size (4) x attn_cp_size (1) x attn_dp_size (None) (server_args.py:583)[0m
 2026-08-12T02:14:51.5503084Z [ts] [38;20m[2026-08-12 02:14:51,549 None] - INFO - Parallelism configuration:
@@ -2768,204 +2768,204 @@
 2026-08-12T02:15:05.1646452Z [ts] [38;20m[2026-08-12 02:15:05,164  ATTN TP RANK 2] - INFO - Using model weights format ['*.safetensors'] (weight_utils.py:197)[0m
 2026-08-12T02:15:05.6128633Z [ts] [38;20m[2026-08-12 02:15:05,612  ATTN TP RANK 3] - INFO - Prefetching 94 checkpoint shards into the OS page cache (window 80.0 GiB, 4 reader threads). (weight_utils.py:475)[0m
 2026-08-12T02:15:06.1445277Z [ts] [38;20m[2026-08-12 02:15:06,144  ATTN TP RANK 0] - INFO - Prefetching 94 checkpoint shards into the OS page cache (window 80.0 GiB, 4 reader threads). (weight_utils.py:475)[0m
-2026-08-12T02:15:06.1455514Z [ts] 
+2026-08-12T02:15:06.1455514Z [ts]
 2026-08-12T02:15:06.1456521Z Loading safetensors checkpoint shards:   0% Completed | 0/94 [00:00<?, ?it/s]
-2026-08-12T02:15:06.7033770Z [ts] 
+2026-08-12T02:15:06.7033770Z [ts]
 2026-08-12T02:15:06.7034171Z Loading safetensors checkpoint shards:   1% Completed | 1/94 [00:00<00:51,  1.79it/s]
 2026-08-12T02:15:06.7221991Z [ts] [38;20m[2026-08-12 02:15:06,721  ATTN TP RANK 2] - INFO - Prefetching 94 checkpoint shards into the OS page cache (window 80.0 GiB, 4 reader threads). (weight_utils.py:475)[0m
-2026-08-12T02:15:07.1149668Z [ts] 
+2026-08-12T02:15:07.1149668Z [ts]
 2026-08-12T02:15:07.1149986Z Loading safetensors checkpoint shards:   2% Completed | 2/94 [00:00<00:43,  2.12it/s]
 2026-08-12T02:15:07.2439160Z [ts] [38;20m[2026-08-12 02:15:07,243  ATTN TP RANK 1] - INFO - Prefetching 94 checkpoint shards into the OS page cache (window 80.0 GiB, 4 reader threads). (weight_utils.py:475)[0m
-2026-08-12T02:15:07.5655225Z [ts] 
+2026-08-12T02:15:07.5655225Z [ts]
 2026-08-12T02:15:07.5655524Z Loading safetensors checkpoint shards:   3% Completed | 3/94 [00:01<00:42,  2.16it/s]
-2026-08-12T02:15:07.8826539Z [ts] 
+2026-08-12T02:15:07.8826539Z [ts]
 2026-08-12T02:15:07.8827041Z Loading safetensors checkpoint shards:   4% Completed | 4/94 [00:01<00:36,  2.47it/s]
-2026-08-12T02:15:08.1704542Z [ts] 
+2026-08-12T02:15:08.1704542Z [ts]
 2026-08-12T02:15:08.1704823Z Loading safetensors checkpoint shards:   5% Completed | 5/94 [00:02<00:32,  2.76it/s]
-2026-08-12T02:15:08.4588320Z [ts] 
+2026-08-12T02:15:08.4588320Z [ts]
 2026-08-12T02:15:08.4588597Z Loading safetensors checkpoint shards:   6% Completed | 6/94 [00:02<00:29,  2.96it/s]
-2026-08-12T02:15:08.8992425Z [ts] 
+2026-08-12T02:15:08.8992425Z [ts]
 2026-08-12T02:15:08.8992724Z Loading safetensors checkpoint shards:   7% Completed | 7/94 [00:02<00:32,  2.70it/s]
-2026-08-12T02:15:09.2362219Z [ts] 
+2026-08-12T02:15:09.2362219Z [ts]
 2026-08-12T02:15:09.2362512Z Loading safetensors checkpoint shards:   9% Completed | 8/94 [00:03<00:30,  2.78it/s]
-2026-08-12T02:15:09.5131467Z [ts] 
+2026-08-12T02:15:09.5131467Z [ts]
 2026-08-12T02:15:09.5131744Z Loading safetensors checkpoint shards:  10% Completed | 9/94 [00:03<00:28,  2.99it/s]
-2026-08-12T02:15:10.2408420Z [ts] 
+2026-08-12T02:15:10.2408420Z [ts]
 2026-08-12T02:15:10.2408696Z Loading safetensors checkpoint shards:  11% Completed | 10/94 [00:04<00:38,  2.19it/s]
-2026-08-12T02:15:10.5435981Z [ts] 
+2026-08-12T02:15:10.5435981Z [ts]
 2026-08-12T02:15:10.5436254Z Loading safetensors checkpoint shards:  12% Completed | 11/94 [00:04<00:33,  2.45it/s]
-2026-08-12T02:15:10.9395583Z [ts] 
+2026-08-12T02:15:10.9395583Z [ts]
 2026-08-12T02:15:10.9395858Z Loading safetensors checkpoint shards:  13% Completed | 12/94 [00:04<00:33,  2.47it/s]
-2026-08-12T02:15:11.2463403Z [ts] 
+2026-08-12T02:15:11.2463403Z [ts]
 2026-08-12T02:15:11.2463682Z Loading safetensors checkpoint shards:  14% Completed | 13/94 [00:05<00:30,  2.67it/s]
-2026-08-12T02:15:11.5168024Z [ts] 
+2026-08-12T02:15:11.5168024Z [ts]
 2026-08-12T02:15:11.5168294Z Loading safetensors checkpoint shards:  15% Completed | 14/94 [00:05<00:27,  2.91it/s]
-2026-08-12T02:15:11.7807933Z [ts] 
+2026-08-12T02:15:11.7807933Z [ts]
 2026-08-12T02:15:11.7808210Z Loading safetensors checkpoint shards:  16% Completed | 15/94 [00:05<00:25,  3.13it/s]
-2026-08-12T02:15:12.0478972Z [ts] 
+2026-08-12T02:15:12.0478972Z [ts]
 2026-08-12T02:15:12.0479244Z Loading safetensors checkpoint shards:  17% Completed | 16/94 [00:05<00:23,  3.29it/s]
-2026-08-12T02:15:12.3152451Z [ts] 
+2026-08-12T02:15:12.3152451Z [ts]
 2026-08-12T02:15:12.3152736Z Loading safetensors checkpoint shards:  18% Completed | 17/94 [00:06<00:22,  3.41it/s]
-2026-08-12T02:15:12.5850785Z [ts] 
+2026-08-12T02:15:12.5850785Z [ts]
 2026-08-12T02:15:12.5851065Z Loading safetensors checkpoint shards:  19% Completed | 18/94 [00:06<00:21,  3.50it/s]
-2026-08-12T02:15:12.8539075Z [ts] 
+2026-08-12T02:15:12.8539075Z [ts]
 2026-08-12T02:15:12.8539344Z Loading safetensors checkpoint shards:  20% Completed | 19/94 [00:06<00:21,  3.56it/s]
-2026-08-12T02:15:13.1270993Z [ts] 
+2026-08-12T02:15:13.1270993Z [ts]
 2026-08-12T02:15:13.1271258Z Loading safetensors checkpoint shards:  21% Completed | 20/94 [00:06<00:20,  3.59it/s]
-2026-08-12T02:15:13.5398808Z [ts] 
+2026-08-12T02:15:13.5398808Z [ts]
 2026-08-12T02:15:13.5399092Z Loading safetensors checkpoint shards:  22% Completed | 21/94 [00:07<00:23,  3.14it/s]
-2026-08-12T02:15:13.8640070Z [ts] 
+2026-08-12T02:15:13.8640070Z [ts]
 2026-08-12T02:15:13.8640779Z Loading safetensors checkpoint shards:  23% Completed | 22/94 [00:07<00:23,  3.12it/s]
-2026-08-12T02:15:14.1380525Z [ts] 
+2026-08-12T02:15:14.1380525Z [ts]
 2026-08-12T02:15:14.1380814Z Loading safetensors checkpoint shards:  24% Completed | 23/94 [00:07<00:21,  3.26it/s]
-2026-08-12T02:15:14.4123116Z [ts] 
+2026-08-12T02:15:14.4123116Z [ts]
 2026-08-12T02:15:14.4123395Z Loading safetensors checkpoint shards:  26% Completed | 24/94 [00:08<00:20,  3.37it/s]
-2026-08-12T02:15:14.6788488Z [ts] 
+2026-08-12T02:15:14.6788488Z [ts]
 2026-08-12T02:15:14.6788767Z Loading safetensors checkpoint shards:  27% Completed | 25/94 [00:08<00:19,  3.48it/s]
-2026-08-12T02:15:14.9449602Z [ts] 
+2026-08-12T02:15:14.9449602Z [ts]
 2026-08-12T02:15:14.9450186Z Loading safetensors checkpoint shards:  28% Completed | 26/94 [00:08<00:19,  3.56it/s]
-2026-08-12T02:15:15.2111100Z [ts] 
+2026-08-12T02:15:15.2111100Z [ts]
 2026-08-12T02:15:15.2111376Z Loading safetensors checkpoint shards:  29% Completed | 27/94 [00:09<00:18,  3.61it/s]
-2026-08-12T02:15:15.6051795Z [ts] 
+2026-08-12T02:15:15.6051795Z [ts]
 2026-08-12T02:15:15.6052088Z Loading safetensors checkpoint shards:  30% Completed | 28/94 [00:09<00:20,  3.21it/s]
-2026-08-12T02:15:16.0356839Z [ts] 
+2026-08-12T02:15:16.0356839Z [ts]
 2026-08-12T02:15:16.0357119Z Loading safetensors checkpoint shards:  31% Completed | 29/94 [00:09<00:22,  2.88it/s]
-2026-08-12T02:15:16.3477948Z [ts] 
+2026-08-12T02:15:16.3477948Z [ts]
 2026-08-12T02:15:16.3478224Z Loading safetensors checkpoint shards:  32% Completed | 30/94 [00:10<00:21,  2.97it/s]
-2026-08-12T02:15:16.6178526Z [ts] 
+2026-08-12T02:15:16.6178526Z [ts]
 2026-08-12T02:15:16.6178792Z Loading safetensors checkpoint shards:  33% Completed | 31/94 [00:10<00:19,  3.16it/s]
-2026-08-12T02:15:16.8793268Z [ts] 
+2026-08-12T02:15:16.8793268Z [ts]
 2026-08-12T02:15:16.8793530Z Loading safetensors checkpoint shards:  34% Completed | 32/94 [00:10<00:18,  3.33it/s]
-2026-08-12T02:15:17.2793021Z [ts] 
+2026-08-12T02:15:17.2793021Z [ts]
 2026-08-12T02:15:17.2793295Z Loading safetensors checkpoint shards:  35% Completed | 33/94 [00:11<00:20,  3.03it/s]
-2026-08-12T02:15:17.7244718Z [ts] 
+2026-08-12T02:15:17.7244718Z [ts]
 2026-08-12T02:15:17.7244994Z Loading safetensors checkpoint shards:  36% Completed | 34/94 [00:11<00:21,  2.74it/s]
-2026-08-12T02:15:18.1668599Z [ts] 
+2026-08-12T02:15:18.1668599Z [ts]
 2026-08-12T02:15:18.1668882Z Loading safetensors checkpoint shards:  37% Completed | 35/94 [00:12<00:22,  2.58it/s]
-2026-08-12T02:15:18.7759652Z [ts] 
+2026-08-12T02:15:18.7759652Z [ts]
 2026-08-12T02:15:18.7759969Z Loading safetensors checkpoint shards:  38% Completed | 36/94 [00:12<00:26,  2.20it/s]
-2026-08-12T02:15:19.2939048Z [ts] 
+2026-08-12T02:15:19.2939048Z [ts]
 2026-08-12T02:15:19.2939326Z Loading safetensors checkpoint shards:  39% Completed | 37/94 [00:13<00:26,  2.11it/s]
-2026-08-12T02:15:19.7580614Z [ts] 
+2026-08-12T02:15:19.7580614Z [ts]
 2026-08-12T02:15:19.7580902Z Loading safetensors checkpoint shards:  40% Completed | 38/94 [00:13<00:26,  2.12it/s]
-2026-08-12T02:15:20.2195091Z [ts] 
+2026-08-12T02:15:20.2195091Z [ts]
 2026-08-12T02:15:20.2195507Z Loading safetensors checkpoint shards:  41% Completed | 39/94 [00:14<00:25,  2.14it/s]
-2026-08-12T02:15:20.5260559Z [ts] 
+2026-08-12T02:15:20.5260559Z [ts]
 2026-08-12T02:15:20.5260941Z Loading safetensors checkpoint shards:  43% Completed | 40/94 [00:14<00:22,  2.38it/s]
-2026-08-12T02:15:20.9206665Z [ts] 
+2026-08-12T02:15:20.9206665Z [ts]
 2026-08-12T02:15:20.9207057Z Loading safetensors checkpoint shards:  44% Completed | 41/94 [00:14<00:21,  2.43it/s]
-2026-08-12T02:15:21.6374480Z [ts] 
+2026-08-12T02:15:21.6374480Z [ts]
 2026-08-12T02:15:21.6374867Z Loading safetensors checkpoint shards:  45% Completed | 42/94 [00:15<00:26,  1.99it/s]
-2026-08-12T02:15:22.0894804Z [ts] 
+2026-08-12T02:15:22.0894804Z [ts]
 2026-08-12T02:15:22.0895179Z Loading safetensors checkpoint shards:  46% Completed | 43/94 [00:15<00:24,  2.05it/s]
-2026-08-12T02:15:22.3962868Z [ts] 
+2026-08-12T02:15:22.3962868Z [ts]
 2026-08-12T02:15:22.3963310Z Loading safetensors checkpoint shards:  47% Completed | 44/94 [00:16<00:21,  2.31it/s]
-2026-08-12T02:15:22.6729802Z [ts] 
+2026-08-12T02:15:22.6729802Z [ts]
 2026-08-12T02:15:22.6730512Z Loading safetensors checkpoint shards:  48% Completed | 45/94 [00:16<00:18,  2.59it/s]
-2026-08-12T02:15:23.0905848Z [ts] 
+2026-08-12T02:15:23.0905848Z [ts]
 2026-08-12T02:15:23.0906151Z Loading safetensors checkpoint shards:  49% Completed | 46/94 [00:16<00:19,  2.53it/s]
-2026-08-12T02:15:23.4081657Z [ts] 
+2026-08-12T02:15:23.4081657Z [ts]
 2026-08-12T02:15:23.4081952Z Loading safetensors checkpoint shards:  50% Completed | 47/94 [00:17<00:17,  2.69it/s]
-2026-08-12T02:15:23.8162277Z [ts] 
+2026-08-12T02:15:23.8162277Z [ts]
 2026-08-12T02:15:23.8162715Z Loading safetensors checkpoint shards:  51% Completed | 48/94 [00:17<00:17,  2.61it/s]
-2026-08-12T02:15:24.1365010Z [ts] 
+2026-08-12T02:15:24.1365010Z [ts]
 2026-08-12T02:15:24.1365903Z Loading safetensors checkpoint shards:  52% Completed | 49/94 [00:17<00:16,  2.75it/s]
-2026-08-12T02:15:24.6941858Z [ts] 
+2026-08-12T02:15:24.6941858Z [ts]
 2026-08-12T02:15:24.6942200Z Loading safetensors checkpoint shards:  53% Completed | 50/94 [00:18<00:18,  2.37it/s]
-2026-08-12T02:15:25.1046853Z [ts] 
+2026-08-12T02:15:25.1046853Z [ts]
 2026-08-12T02:15:25.1047144Z Loading safetensors checkpoint shards:  54% Completed | 51/94 [00:18<00:18,  2.39it/s]
-2026-08-12T02:15:25.3898513Z [ts] 
+2026-08-12T02:15:25.3898513Z [ts]
 2026-08-12T02:15:25.3898791Z Loading safetensors checkpoint shards:  55% Completed | 52/94 [00:19<00:15,  2.64it/s]
-2026-08-12T02:15:25.6700834Z [ts] 
+2026-08-12T02:15:25.6700834Z [ts]
 2026-08-12T02:15:25.6701113Z Loading safetensors checkpoint shards:  56% Completed | 53/94 [00:19<00:14,  2.86it/s]
-2026-08-12T02:15:25.9277760Z [ts] 
+2026-08-12T02:15:25.9277760Z [ts]
 2026-08-12T02:15:25.9278057Z Loading safetensors checkpoint shards:  57% Completed | 54/94 [00:19<00:12,  3.11it/s]
-2026-08-12T02:15:26.1810446Z [ts] 
+2026-08-12T02:15:26.1810446Z [ts]
 2026-08-12T02:15:26.1810901Z Loading safetensors checkpoint shards:  59% Completed | 55/94 [00:20<00:11,  3.32it/s]
-2026-08-12T02:15:26.4298868Z [ts] 
+2026-08-12T02:15:26.4298868Z [ts]
 2026-08-12T02:15:26.4299192Z Loading safetensors checkpoint shards:  60% Completed | 56/94 [00:20<00:10,  3.50it/s]
-2026-08-12T02:15:26.8031789Z [ts] 
+2026-08-12T02:15:26.8031789Z [ts]
 2026-08-12T02:15:26.8033360Z Loading safetensors checkpoint shards:  61% Completed | 57/94 [00:20<00:11,  3.21it/s]
-2026-08-12T02:15:27.0968519Z [ts] 
+2026-08-12T02:15:27.0968519Z [ts]
 2026-08-12T02:15:27.0968936Z Loading safetensors checkpoint shards:  62% Completed | 58/94 [00:20<00:11,  3.26it/s]
 2026-08-12T02:15:27.2547097Z [ts] [38;20m[2026-08-12 02:15:27,254  ATTN TP RANK 3] - INFO - Checkpoint prefetch finished after 21.64s. (weight_utils.py:516)[0m
-2026-08-12T02:15:27.4795529Z [ts] 
+2026-08-12T02:15:27.4795529Z [ts]
 2026-08-12T02:15:27.4795822Z Loading safetensors checkpoint shards:  63% Completed | 59/94 [00:21<00:11,  3.04it/s]
-2026-08-12T02:15:27.7775372Z [ts] 
+2026-08-12T02:15:27.7775372Z [ts]
 2026-08-12T02:15:27.7775690Z Loading safetensors checkpoint shards:  64% Completed | 60/94 [00:21<00:10,  3.13it/s]
-2026-08-12T02:15:28.0410679Z [ts] 
+2026-08-12T02:15:28.0410679Z [ts]
 2026-08-12T02:15:28.0410952Z Loading safetensors checkpoint shards:  65% Completed | 61/94 [00:21<00:09,  3.30it/s]
 2026-08-12T02:15:28.2456148Z [ts] [38;20m[2026-08-12 02:15:28,245  ATTN TP RANK 0] - INFO - Checkpoint prefetch finished after 22.10s. (weight_utils.py:516)[0m
-2026-08-12T02:15:28.4382996Z [ts] 
+2026-08-12T02:15:28.4382996Z [ts]
 2026-08-12T02:15:28.4383306Z Loading safetensors checkpoint shards:  66% Completed | 62/94 [00:22<00:10,  3.02it/s]
-2026-08-12T02:15:28.7446807Z [ts] 
+2026-08-12T02:15:28.7446807Z [ts]
 2026-08-12T02:15:28.7447088Z Loading safetensors checkpoint shards:  67% Completed | 63/94 [00:22<00:10,  3.09it/s]
 2026-08-12T02:15:28.9192947Z [ts] [38;20m[2026-08-12 02:15:28,918  ATTN TP RANK 2] - INFO - Checkpoint prefetch finished after 22.20s. (weight_utils.py:516)[0m
-2026-08-12T02:15:29.1456802Z [ts] 
+2026-08-12T02:15:29.1456802Z [ts]
 2026-08-12T02:15:29.1457236Z Loading safetensors checkpoint shards:  69% Completed | 65/94 [00:22<00:07,  3.75it/s]
-2026-08-12T02:15:29.5819840Z [ts] 
+2026-08-12T02:15:29.5819840Z [ts]
 2026-08-12T02:15:29.5820238Z Loading safetensors checkpoint shards:  70% Completed | 66/94 [00:23<00:08,  3.25it/s]
 2026-08-12T02:15:29.7130917Z [ts] [38;20m[2026-08-12 02:15:29,712  ATTN TP RANK 1] - INFO - Checkpoint prefetch finished after 22.47s. (weight_utils.py:516)[0m
-2026-08-12T02:15:29.8777588Z [ts] 
+2026-08-12T02:15:29.8777588Z [ts]
 2026-08-12T02:15:29.8777862Z Loading safetensors checkpoint shards:  71% Completed | 67/94 [00:23<00:08,  3.27it/s]
-2026-08-12T02:15:30.1385226Z [ts] 
+2026-08-12T02:15:30.1385226Z [ts]
 2026-08-12T02:15:30.1385501Z Loading safetensors checkpoint shards:  72% Completed | 68/94 [00:23<00:07,  3.41it/s]
-2026-08-12T02:15:30.5268683Z [ts] 
+2026-08-12T02:15:30.5268683Z [ts]
 2026-08-12T02:15:30.5268957Z Loading safetensors checkpoint shards:  73% Completed | 69/94 [00:24<00:08,  3.12it/s]
-2026-08-12T02:15:30.8332580Z [ts] 
+2026-08-12T02:15:30.8332580Z [ts]
 2026-08-12T02:15:30.8332856Z Loading safetensors checkpoint shards:  74% Completed | 70/94 [00:24<00:07,  3.16it/s]
-2026-08-12T02:15:31.1005295Z [ts] 
+2026-08-12T02:15:31.1005295Z [ts]
 2026-08-12T02:15:31.1005568Z Loading safetensors checkpoint shards:  76% Completed | 71/94 [00:24<00:06,  3.31it/s]
-2026-08-12T02:15:31.7027044Z [ts] 
+2026-08-12T02:15:31.7027044Z [ts]
 2026-08-12T02:15:31.7028223Z Loading safetensors checkpoint shards:  77% Completed | 72/94 [00:25<00:08,  2.56it/s]
-2026-08-12T02:15:32.1146174Z [ts] 
+2026-08-12T02:15:32.1146174Z [ts]
 2026-08-12T02:15:32.1146818Z Loading safetensors checkpoint shards:  78% Completed | 73/94 [00:25<00:08,  2.52it/s]
-2026-08-12T02:15:32.4176758Z [ts] 
+2026-08-12T02:15:32.4176758Z [ts]
 2026-08-12T02:15:32.4177049Z Loading safetensors checkpoint shards:  79% Completed | 74/94 [00:26<00:07,  2.71it/s]
-2026-08-12T02:15:32.6725341Z [ts] 
+2026-08-12T02:15:32.6725341Z [ts]
 2026-08-12T02:15:32.6725626Z Loading safetensors checkpoint shards:  80% Completed | 75/94 [00:26<00:06,  2.99it/s]
-2026-08-12T02:15:32.9374543Z [ts] 
+2026-08-12T02:15:32.9374543Z [ts]
 2026-08-12T02:15:32.9374811Z Loading safetensors checkpoint shards:  81% Completed | 76/94 [00:26<00:05,  3.18it/s]
-2026-08-12T02:15:33.2103286Z [ts] 
+2026-08-12T02:15:33.2103286Z [ts]
 2026-08-12T02:15:33.2103562Z Loading safetensors checkpoint shards:  82% Completed | 77/94 [00:27<00:05,  3.31it/s]
-2026-08-12T02:15:33.4863186Z [ts] 
+2026-08-12T02:15:33.4863186Z [ts]
 2026-08-12T02:15:33.4863458Z Loading safetensors checkpoint shards:  83% Completed | 78/94 [00:27<00:04,  3.40it/s]
-2026-08-12T02:15:33.8850700Z [ts] 
+2026-08-12T02:15:33.8850700Z [ts]
 2026-08-12T02:15:33.8850996Z Loading safetensors checkpoint shards:  84% Completed | 79/94 [00:27<00:04,  3.07it/s]
-2026-08-12T02:15:34.1894169Z [ts] 
+2026-08-12T02:15:34.1894169Z [ts]
 2026-08-12T02:15:34.1894456Z Loading safetensors checkpoint shards:  85% Completed | 80/94 [00:28<00:04,  3.13it/s]
-2026-08-12T02:15:34.4546381Z [ts] 
+2026-08-12T02:15:34.4546381Z [ts]
 2026-08-12T02:15:34.4546650Z Loading safetensors checkpoint shards:  86% Completed | 81/94 [00:28<00:03,  3.30it/s]
-2026-08-12T02:15:34.7172590Z [ts] 
+2026-08-12T02:15:34.7172590Z [ts]
 2026-08-12T02:15:34.7172857Z Loading safetensors checkpoint shards:  87% Completed | 82/94 [00:28<00:03,  3.44it/s]
-2026-08-12T02:15:34.9832940Z [ts] 
+2026-08-12T02:15:34.9832940Z [ts]
 2026-08-12T02:15:34.9833217Z Loading safetensors checkpoint shards:  88% Completed | 83/94 [00:28<00:03,  3.53it/s]
-2026-08-12T02:15:35.2524568Z [ts] 
+2026-08-12T02:15:35.2524568Z [ts]
 2026-08-12T02:15:35.2524844Z Loading safetensors checkpoint shards:  89% Completed | 84/94 [00:29<00:02,  3.58it/s]
-2026-08-12T02:15:35.5183002Z [ts] 
+2026-08-12T02:15:35.5183002Z [ts]
 2026-08-12T02:15:35.5183273Z Loading safetensors checkpoint shards:  90% Completed | 85/94 [00:29<00:02,  3.63it/s]
-2026-08-12T02:15:35.7855142Z [ts] 
+2026-08-12T02:15:35.7855142Z [ts]
 2026-08-12T02:15:35.7855398Z Loading safetensors checkpoint shards:  91% Completed | 86/94 [00:29<00:02,  3.67it/s]
-2026-08-12T02:15:36.1932714Z [ts] 
+2026-08-12T02:15:36.1932714Z [ts]
 2026-08-12T02:15:36.1932992Z Loading safetensors checkpoint shards:  93% Completed | 87/94 [00:30<00:02,  3.19it/s]
-2026-08-12T02:15:36.6478470Z [ts] 
+2026-08-12T02:15:36.6478470Z [ts]
 2026-08-12T02:15:36.6478738Z Loading safetensors checkpoint shards:  94% Completed | 88/94 [00:30<00:02,  2.81it/s]
-2026-08-12T02:15:36.9581818Z [ts] 
+2026-08-12T02:15:36.9581818Z [ts]
 2026-08-12T02:15:36.9582088Z Loading safetensors checkpoint shards:  95% Completed | 89/94 [00:30<00:01,  2.92it/s]
-2026-08-12T02:15:37.3771755Z [ts] 
+2026-08-12T02:15:37.3771755Z [ts]
 2026-08-12T02:15:37.3772022Z Loading safetensors checkpoint shards:  96% Completed | 90/94 [00:31<00:01,  2.74it/s]
 2026-08-12T02:15:37.5863909Z [ts] [38;20m[2026-08-12 02:15:37,586  ATTN TP RANK 3] - INFO - Load weight end. type=Qwen3_5MoeForConditionalGeneration, dtype=torch.bfloat16, avail mem=195.76 GB (weight_loader.py:117)[0m
-2026-08-12T02:15:37.6946357Z [ts] 
+2026-08-12T02:15:37.6946357Z [ts]
 2026-08-12T02:15:37.6946622Z Loading safetensors checkpoint shards:  97% Completed | 91/94 [00:31<00:01,  2.85it/s]
-2026-08-12T02:15:37.9612251Z [ts] 
+2026-08-12T02:15:37.9612251Z [ts]
 2026-08-12T02:15:37.9612523Z Loading safetensors checkpoint shards:  98% Completed | 92/94 [00:31<00:00,  3.07it/s]
-2026-08-12T02:15:38.2295590Z [ts] 
+2026-08-12T02:15:38.2295590Z [ts]
 2026-08-12T02:15:38.2295853Z Loading safetensors checkpoint shards:  99% Completed | 93/94 [00:32<00:00,  3.24it/s]
-2026-08-12T02:15:38.4943933Z [ts] 
+2026-08-12T02:15:38.4943933Z [ts]
 2026-08-12T02:15:38.4944259Z Loading safetensors checkpoint shards: 100% Completed | 94/94 [00:32<00:00,  3.39it/s]
-2026-08-12T02:15:38.4944799Z [ts] 
+2026-08-12T02:15:38.4944799Z [ts]
 2026-08-12T02:15:38.4945017Z Loading safetensors checkpoint shards: 100% Completed | 94/94 [00:32<00:00,  2.91it/s]
-2026-08-12T02:15:38.4945227Z [ts] 
+2026-08-12T02:15:38.4945227Z [ts]
 2026-08-12T02:15:38.5226696Z [ts] [38;20m[2026-08-12 02:15:38,522  ATTN TP RANK 0] - INFO - Load weight end. type=Qwen3_5MoeForConditionalGeneration, dtype=torch.bfloat16, avail mem=195.58 GB (weight_loader.py:117)[0m
 2026-08-12T02:15:39.3281418Z [ts] [38;20m[2026-08-12 02:15:39,327  ATTN TP RANK 2] - INFO - Load weight end. type=Qwen3_5MoeForConditionalGeneration, dtype=torch.bfloat16, avail mem=195.58 GB (weight_loader.py:117)[0m
 2026-08-12T02:15:40.0107700Z [ts] [38;20m[2026-08-12 02:15:40,010  ATTN TP RANK 1] - INFO - Load weight end. type=Qwen3_5MoeForConditionalGeneration, dtype=torch.bfloat16, avail mem=195.51 GB (weight_loader.py:117)[0m
@@ -3013,9 +3013,9 @@
 2026-08-12T02:15:45.5796049Z [ts] [38;20m[2026-08-12 02:15:45,579  ATTN TP RANK 1] - INFO - Kernel tuning finished in 1.5s (model_executor.py:604)[0m
 2026-08-12T02:15:45.5796646Z [ts] [38;20m[2026-08-12 02:15:45,579  ATTN TP RANK 3] - INFO - Kernel tuning finished in 1.5s (model_executor.py:604)[0m
 2026-08-12T02:15:45.5797048Z [ts] [38;20m[2026-08-12 02:15:45,579  ATTN TP RANK 2] - INFO - Kernel tuning finished in 1.5s (model_executor.py:604)[0m
-2026-08-12T02:15:45.8186446Z [ts] 
+2026-08-12T02:15:45.8186446Z [ts]
 2026-08-12T02:15:45.8186868Z   0%|          | 0/6 [00:00<?, ?it/s][38;20m[2026-08-12 02:15:45,818  ATTN TP RANK 0] - INFO - Capturing batches: [1, 2, 4, 8, 15, 16] (cuda_graph_wrapper.py:328)[0m
-2026-08-12T02:15:45.9306189Z [ts] 
+2026-08-12T02:15:45.9306189Z [ts]
 2026-08-12T02:15:45.9306595Z Capturing batches (bs=1 avail_mem=22.87 GB):   0%|          | 0/6 [00:00<?, ?it/s]02:15:45 INFO  [Iris] [0/4] init: heap_size=0.2GB rank=0/4 allocator=torch
 2026-08-12T02:15:45.9307032Z [ts] [2026-08-12 02:15:45 ATTN TP RANK 0] init: heap_size=0.2GB rank=0/4 allocator=torch
 2026-08-12T02:15:45.9307451Z [ts] 02:15:45 INFO  [Iris] [0/4] [symmetric_heap] SymmetricHeap: init heap_size=0.2GB device=0 allocator=torch
@@ -3149,4 +3149,3 @@
 2026-08-12T02:44:53.7489623Z Terminate orphan process: pid (1718) (tokenspeed::scheduler_0)
 2026-08-12T02:44:53.7501522Z Terminate orphan process: pid (1719) (tokenspeed::scheduler_0)
 2026-08-12T02:44:53.7555003Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
-

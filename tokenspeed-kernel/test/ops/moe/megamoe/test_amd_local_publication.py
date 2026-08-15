@@ -534,11 +534,11 @@ def _run_variant(
         "protocol": (
             "drain_only_subgroup0_all_words"
             if drain_only
-            else "elected_ack_wait_subgroup0_all_words"
-            if subgroup_zero_consumer
-            else "per_subgroup_live"
-            if per_subgroup
-            else "elected_ack_wait"
+            else (
+                "elected_ack_wait_subgroup0_all_words"
+                if subgroup_zero_consumer
+                else "per_subgroup_live" if per_subgroup else "elected_ack_wait"
+            )
         ),
         "iterations": iterations,
         "payload_errors": int(errors.sum()),
@@ -610,9 +610,9 @@ def _worker_main(
     assert ownership_transfer["payload_errors"] == 0, ownership_transfer
     assert ownership_transfer["ready_gate"] == iterations, ownership_transfer
     assert ownership_transfer["completion_gate"] == iterations, ownership_transfer
-    assert ownership_transfer["completion_arrival"] == iterations * _PROGRAMS, (
-        ownership_transfer
-    )
+    assert (
+        ownership_transfer["completion_arrival"] == iterations * _PROGRAMS
+    ), ownership_transfer
     assert len(ownership_transfer["xcc_population"]) == 8, ownership_transfer
 
 

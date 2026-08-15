@@ -238,9 +238,7 @@ def test_producer_direct_lane_exposes_graph_stable_flat_abi():
     owner._producer_direct_output_buf = torch.empty_like(owner._input_buf)
     owner._producer_direct_lane_input_buf = torch.zeros_like(owner._input_buf)
     owner._producer_direct_ready_flags = torch.zeros(21, 8, dtype=torch.int32)
-    owner._producer_direct_lane_ready_flags = torch.zeros(
-        2, 21, 8, dtype=torch.int64
-    )
+    owner._producer_direct_lane_ready_flags = torch.zeros(2, 21, 8, dtype=torch.int64)
     owner._producer_direct_topology_status = torch.zeros(2, dtype=torch.int64)
     owner._producer_direct_fatal_epoch = torch.zeros(1, dtype=torch.int64)
     owner._heap_bases = owner._ctx.get_heap_bases()
@@ -434,9 +432,9 @@ def _check_all_reduce(state, rank: int, world_size: int, shape, device) -> None:
     expected_value = world_size * (world_size + 1) // 2
     expected = torch.full(shape, expected_value, dtype=torch.bfloat16, device=device)
 
-    assert result.shape == expected.shape, (
-        f"shape mismatch: {result.shape} vs {expected.shape}"
-    )
+    assert (
+        result.shape == expected.shape
+    ), f"shape mismatch: {result.shape} vs {expected.shape}"
     torch.testing.assert_close(result, expected, atol=0, rtol=0)
 
 

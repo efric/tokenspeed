@@ -249,6 +249,9 @@ class Envs:
     TOKENSPEED_PROFILE_WITH_STACK = EnvBool(True)
     TOKENSPEED_TEST_REQUEST_TIME_STATS = EnvBool(False)
     TOKENSPEED_LOG_SPEC_ACCEPT_LENGTHS = EnvBool(False)
+    # Profiling-only discriminator. Keep enabled for serving so a poisoned
+    # MegaMoE result is rejected before token commit.
+    TOKENSPEED_K3_MEGAMOE_FATAL_EPOCH_D2H = EnvBool(True)
     TOKENSPEED_PROFILER_DIR = EnvStr("/tmp")
     TOKENSPEED_CI_SMALL_KV_SIZE = EnvInt(-1)
     TOKENSPEED_NVTX = EnvBool(False)

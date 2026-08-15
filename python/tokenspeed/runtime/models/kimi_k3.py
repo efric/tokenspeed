@@ -3578,6 +3578,7 @@ class KimiK3ForConditionalGeneration(nn.Module):
         self._kimi_k3_megamoe_layer_plans = plans
         self._kimi_k3_megamoe_lane_owner = lane
         self._kimi_k3_megamoe_prepared = True
+        logger.info("Kimi-K3 MegaMoE prepared %d persistent layer plans", len(plans))
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
         """Route checkpoint weights by top-level prefix.

@@ -49,7 +49,10 @@ from tokenspeed.runtime.execution.forward_batch_info import (
     ForwardMode,
 )
 from tokenspeed.runtime.execution.input_buffer import InputBuffers
-from tokenspeed.runtime.execution.model_runner import ModelRunner
+from tokenspeed.runtime.execution.model_runner import (
+    ModelRunner,
+    validate_kimi_k3_megamoe_fatal_epoch_slots,
+)
 from tokenspeed.runtime.execution.multimodal_runtime import MultimodalRuntime
 from tokenspeed.runtime.execution.nan_guard import NanGuard
 from tokenspeed.runtime.execution.prefill_graph import PrefillGraph
@@ -304,6 +307,14 @@ class ModelExecutor:
         self.device = config.device
         self.config = config
         self.model_runner = model_runner
+        if getattr(model_runner, "_kimi_k3_megamoe_fatal_epoch_d2h_enabled", False):
+            fatal_slots = getattr(
+                model_runner, "_kimi_k3_megamoe_fatal_epoch_cpu_slots", None
+            )
+            validate_kimi_k3_megamoe_fatal_epoch_slots(
+                overlap_schedule_depth=config.overlap_schedule_depth,
+                slot_count=len(fatal_slots or ()),
+            )
         self.sampling_backend = sampling_backend
         self.attn_backend = attn_backend
         self.token_to_kv_pool = token_to_kv_pool
@@ -604,9 +615,7 @@ class ModelExecutor:
         self.execution_stream.wait_stream(torch.cuda.current_stream())
         with torch.cuda.stream(self.execution_stream):
             with autotune(), maybe_inference_mode():
-                ctx = self.prefill_graph.make_dummy_batch(
-                    num_tokens, self.forward_step
-                )
+                ctx = self.prefill_graph.make_dummy_batch(num_tokens, self.forward_step)
                 positions = (
                     ib.mrope_positions_buf[:, :num_tokens]
                     if self.config.model_is_mrope
@@ -1600,9 +1609,11 @@ class ModelExecutor:
                 output_nan_flags = self.nan_guard.flags_cpu
 
                 # The scalar copy is enqueued on this same execution stream
-                # after eager/graph completion and before copy_event.  With the
-                # MegaMoE flag forcing the non-overlap scheduler, sync() checks
-                # it before token commit or the next replay can be enqueued.
+                # after eager/graph completion and before copy_event. The
+                # two-slot host mirror lets the overlap loop enqueue the next
+                # replay before sync() checks this result. No token is committed
+                # before the check, and sticky fatal state makes later MegaMoE
+                # nodes on the serialized execution stream self-abort.
                 enqueue_fatal_epoch = getattr(
                     self.model_runner,
                     "enqueue_kimi_k3_megamoe_fatal_epoch_d2h",

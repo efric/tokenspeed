@@ -73,7 +73,6 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from tokenspeed_kernel_amd._triton import gl, gluon, tl
 
-
 _GATE_ENV = "TOKENSPEED_TEST_MEGAMOE_IRIS_POLL_ACK_ABLATION"
 _ITERATIONS_ENV = "TOKENSPEED_TEST_MEGAMOE_IRIS_POLL_ACK_ABLATION_ITERATIONS"
 _TIMEOUT_ENV = "TOKENSPEED_TEST_MEGAMOE_IRIS_POLL_ACK_ABLATION_TIMEOUT_NS"
@@ -407,9 +406,11 @@ def _assert_loaded_poll_ack_ablation_isa(
     )
     assert len(release_graphs) == 2
     release_offsets = tuple(
-        int(offset.group(1))
-        if (offset := re.search(r"offset:(\d+)", graph.group("swap")))
-        else 0
+        (
+            int(offset.group(1))
+            if (offset := re.search(r"offset:(\d+)", graph.group("swap")))
+            else 0
+        )
         for graph in release_graphs
     )
     assert release_offsets[1] - release_offsets[0] == world_size * 8
@@ -462,8 +463,7 @@ def _assert_loaded_poll_ack_ablation_isa(
     assert lane_id
     assert subgroup_base
     subgroup_id = re.search(
-        rf"\bs_lshr_b32 s(?P<subgroup>\d+), "
-        rf"s{subgroup_base.group('base')}, 6\b",
+        rf"\bs_lshr_b32 s(?P<subgroup>\d+), " rf"s{subgroup_base.group('base')}, 6\b",
         assembly,
     )
     assert subgroup_id
@@ -481,8 +481,7 @@ def _assert_loaded_poll_ack_ablation_isa(
     for poll in poll_graphs:
         poll_prefix = assembly[max(0, poll.start() - 1024) : poll.start()]
         assert re.search(
-            rf"\bs_and_saveexec_b64 s\[\d+:\d+\], "
-            rf"{re.escape(election_mask)}",
+            rf"\bs_and_saveexec_b64 s\[\d+:\d+\], " rf"{re.escape(election_mask)}",
             poll_prefix,
         )
     payload_prefix = assembly[ready_polls[-1].start() : payload_loads[0].start()]

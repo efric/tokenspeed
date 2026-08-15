@@ -2526,7 +2526,7 @@ def compile_kimi_k3_megamoe_gfx950(*args, **kwargs):
         num_warps=8,
         num_stages=1,
         waves_per_eu=2,
-        launch_cooperative_grid=True,
+        launch_cooperative_grid=False,
     )
 
 

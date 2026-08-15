@@ -26,6 +26,8 @@ import torch
 import torch.distributed as dist
 from tokenspeed_kernel.ops.communication.triton import (
     acquire_producer_direct_lane as kernel_acquire_producer_direct_lane,
+)
+from tokenspeed_kernel.ops.communication.triton import (
     acquire_symm_outputs,
     all_reduce,
     all_reduce_can_run,

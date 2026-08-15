@@ -47,7 +47,6 @@ from tokenspeed_kernel_amd.ops.gfx950.moe.megamoe.kernel import (
     _poll_topology_or_poison,
 )
 
-
 _GATE_ENV = "TOKENSPEED_TEST_MEGAMOE_TOPOLOGY_TICKET"
 _ITERATIONS_ENV = "TOKENSPEED_TEST_MEGAMOE_TOPOLOGY_TICKET_ITERATIONS"
 _PROGRAMS = 240

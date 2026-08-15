@@ -42,6 +42,7 @@ register_cuda_ci(est_time=5, suite="runtime-1gpu")
 
 from tokenspeed.runtime.configs.load_config import LoadConfig, LoadFormat  # noqa: E402
 from tokenspeed.runtime.engine.async_llm import AsyncLLM  # noqa: E402
+from tokenspeed.runtime.engine.event_loop import EventLoop  # noqa: E402
 from tokenspeed.runtime.engine.scheduler_control_client import (  # noqa: E402
     SchedulerControlClient,
 )
@@ -50,7 +51,10 @@ from tokenspeed.runtime.execution.cuda_graph_wrapper import (  # noqa: E402
     CudaGraphWrapper,
 )
 from tokenspeed.runtime.execution.model_executor import ModelExecutor  # noqa: E402
-from tokenspeed.runtime.execution.model_runner import ModelRunner  # noqa: E402
+from tokenspeed.runtime.execution.model_runner import (  # noqa: E402
+    ModelRunner,
+    validate_kimi_k3_megamoe_fatal_epoch_slots,
+)
 from tokenspeed.runtime.execution.types import ModelExecutionResult  # noqa: E402
 from tokenspeed.runtime.model_loader.loader import DefaultModelLoader  # noqa: E402
 from tokenspeed.runtime.models import kimi_k3  # noqa: E402
@@ -64,7 +68,7 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def test_megamoe_flag_defaults_off_and_forces_nonoverlap() -> None:
+def test_megamoe_flag_defaults_off_and_preserves_overlap_default() -> None:
     assert not _parse(["--model", "test/model"]).enable_kimi_k3_megamoe
     assert _parse(
         ["--model", "test/model", "--enable-kimi-k3-megamoe"]
@@ -73,8 +77,14 @@ def test_megamoe_flag_defaults_off_and_forces_nonoverlap() -> None:
     with mock.patch.object(ServerArgs, "__post_init__"):
         server_args = ServerArgs(model="test/model", enable_kimi_k3_megamoe=True)
     assert not server_args.disable_overlap_schedule
-    server_args._resolve_kimi_k3_megamoe_runtime_contract()
-    assert server_args.disable_overlap_schedule
+
+    with mock.patch.object(ServerArgs, "__post_init__"):
+        disabled = ServerArgs(
+            model="test/model",
+            enable_kimi_k3_megamoe=True,
+            disable_overlap_schedule=True,
+        )
+    assert disabled.disable_overlap_schedule
 
 
 def test_model_capture_and_replay_retain_one_execution_stream() -> None:
@@ -412,13 +422,39 @@ def test_model_execution_result_rejects_fatal_epoch_after_event_sync() -> None:
 
 def test_model_runner_enqueues_fatal_epoch_copy_nonblocking() -> None:
     fatal_gpu = object()
-    fatal_cpu = mock.Mock()
+    fatal_cpu = (mock.Mock(), mock.Mock())
     runner = SimpleNamespace(
         _kimi_k3_megamoe_fatal_epoch_gpu=fatal_gpu,
-        _kimi_k3_megamoe_fatal_epoch_cpu=fatal_cpu,
+        _kimi_k3_megamoe_fatal_epoch_cpu_slots=fatal_cpu,
+        _kimi_k3_megamoe_fatal_epoch_copy_index=0,
+        _kimi_k3_megamoe_fatal_epoch_d2h_enabled=True,
     )
 
-    got = ModelRunner.enqueue_kimi_k3_megamoe_fatal_epoch_d2h(runner)
+    first = ModelRunner.enqueue_kimi_k3_megamoe_fatal_epoch_d2h(runner)
+    second = ModelRunner.enqueue_kimi_k3_megamoe_fatal_epoch_d2h(runner)
 
-    assert got is fatal_cpu
-    fatal_cpu.copy_.assert_called_once_with(fatal_gpu, non_blocking=True)
+    assert first is fatal_cpu[0]
+    assert second is fatal_cpu[1]
+    assert runner._kimi_k3_megamoe_fatal_epoch_copy_index == 2
+    fatal_cpu[0].copy_.assert_called_once_with(fatal_gpu, non_blocking=True)
+    fatal_cpu[1].copy_.assert_called_once_with(fatal_gpu, non_blocking=True)
+
+    runner._kimi_k3_megamoe_fatal_epoch_d2h_enabled = False
+    assert ModelRunner.enqueue_kimi_k3_megamoe_fatal_epoch_d2h(runner) is None
+    assert runner._kimi_k3_megamoe_fatal_epoch_copy_index == 2
+
+
+def test_overlap_order_and_fatal_epoch_slots_form_a_safe_depth_one_pipeline() -> None:
+    validate_kimi_k3_megamoe_fatal_epoch_slots(overlap_schedule_depth=1, slot_count=2)
+    with pytest.raises(RuntimeError, match="needs at least 3 host slots"):
+        validate_kimi_k3_megamoe_fatal_epoch_slots(
+            overlap_schedule_depth=2, slot_count=2
+        )
+
+    source = inspect.getsource(EventLoop.event_loop_overlap)
+    dispatch = source.index("curr_results, _ = self._dispatch_forward(")
+    commit_previous = source.index(
+        "self._commit_forward_results(prev_forward_op, prev_results)", dispatch
+    )
+    rotate_current = source.index("prev_results = curr_results", commit_previous)
+    assert dispatch < commit_previous < rotate_current

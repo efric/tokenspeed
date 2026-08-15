@@ -33,7 +33,6 @@ from tokenspeed_kernel.ops.moe.megamoe.types import (
     _KimiK3MegaMoEStreamOwner,
 )
 
-
 _LANE_SHAPES = ((1, 7168), (1, 3584))
 _LAST_ADMISSION_REPORT: dict[str, Any] | None = None
 

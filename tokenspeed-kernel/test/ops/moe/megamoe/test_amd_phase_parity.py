@@ -289,9 +289,9 @@ def _assert_bitwise_equal(
         actual_bits = actual
         expected_bits = expected
     differing = actual_bits != expected_bits
-    assert not torch.any(differing), (
-        f"{label} differs at {int(differing.sum())} elements"
-    )
+    assert not torch.any(
+        differing
+    ), f"{label} differs at {int(differing.sum())} elements"
 
 
 def _current_stage2(

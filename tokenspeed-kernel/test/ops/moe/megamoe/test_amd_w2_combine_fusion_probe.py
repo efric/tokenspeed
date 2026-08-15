@@ -171,9 +171,9 @@ def _assert_bitwise_equal(
     actual_bits = actual.contiguous().view(torch.int16)
     expected_bits = expected.contiguous().view(torch.int16)
     differing = actual_bits != expected_bits
-    assert not torch.any(differing), (
-        f"{label} differs at {int(differing.sum().item())} elements"
-    )
+    assert not torch.any(
+        differing
+    ), f"{label} differs at {int(differing.sum().item())} elements"
 
 
 def _time_retained_launch(

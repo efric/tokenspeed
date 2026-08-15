@@ -73,7 +73,6 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from tokenspeed_kernel_amd._triton import gl, gluon, tl
 
-
 _GATE_ENV = "TOKENSPEED_TEST_MEGAMOE_IRIS_PUBLICATION"
 _DRAIN_ONLY_GATE_ENV = "TOKENSPEED_TEST_MEGAMOE_IRIS_PUBLICATION_DRAIN_ONLY"
 _ITERATIONS_ENV = "TOKENSPEED_TEST_MEGAMOE_IRIS_PUBLICATION_ITERATIONS"
@@ -611,9 +610,11 @@ def _assert_loaded_publication_isa(
     )
     assert len(release_graphs) == 2
     release_offsets = tuple(
-        int(offset.group(1))
-        if (offset := re.search(r"offset:(\d+)", match.group("swap")))
-        else 0
+        (
+            int(offset.group(1))
+            if (offset := re.search(r"offset:(\d+)", match.group("swap")))
+            else 0
+        )
         for match in release_graphs
     )
     assert release_offsets[1] - release_offsets[0] == world_size * 8, release_offsets

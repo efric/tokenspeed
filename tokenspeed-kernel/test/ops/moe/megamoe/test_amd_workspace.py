@@ -21,7 +21,6 @@
 from __future__ import annotations
 
 import torch
-
 from tokenspeed_kernel_amd.ops.gfx950.moe.megamoe import (
     kimi_k3_megamoe_workspace_spec,
 )

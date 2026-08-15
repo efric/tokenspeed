@@ -902,4 +902,3 @@ Then validate in this order:
 
 An optimization is complete only when its isolated gain survives the identical
 end-to-end workload and the output remains numerically and behaviorally valid.
-

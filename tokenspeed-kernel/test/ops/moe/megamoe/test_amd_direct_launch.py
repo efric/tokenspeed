@@ -23,10 +23,103 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
+
+
+def _fake_loaded_code(*, cooperative: bool) -> tuple[object, bytes]:
+    code_object = b"host-only-qualified-megamoe-code-object"
+    assembly = """
+.sgpr_count: 106
+.vgpr_count: 156
+.sgpr_spill_count: 40
+.vgpr_spill_count: 0
+.private_segment_fixed_size: 0
+.uses_dynamic_stack: false
+.set .L_host.uses_flat_scratch, 0
+"""
+    compiled = SimpleNamespace(
+        function=1,
+        metadata=SimpleNamespace(
+            shared=128 * 1024,
+            launch_cooperative_grid=cooperative,
+            waves_per_eu=2,
+        ),
+        n_regs=156,
+        n_spills=0,
+        asm={"amdgcn": assembly, "hsaco": code_object},
+    )
+    return compiled, code_object
+
+
+def _patch_host_code_admission(monkeypatch, *, compute_units: int) -> object:
+    from tokenspeed_kernel_amd.ops.gfx950.moe.megamoe import admission
+
+    _, code_object = _fake_loaded_code(cooperative=False)
+    monkeypatch.setattr(
+        admission,
+        "preflight_kimi_k3_megamoe_runtime",
+        lambda: SimpleNamespace(compute_units=compute_units),
+    )
+    monkeypatch.setattr(admission, "_module_occupancy", lambda *_: 1)
+    monkeypatch.setitem(
+        admission._QUALIFIED_CODE_OBJECT_SHA256,
+        (0, 0),
+        hashlib.sha256(code_object).hexdigest(),
+    )
+    return admission
+
+
+def test_amd_code_admission_accepts_ordinary_capacity(monkeypatch) -> None:
+    """Admit ordinary metadata only with resource capacity for P240."""
+
+    admission = _patch_host_code_admission(monkeypatch, compute_units=256)
+    compiled, _ = _fake_loaded_code(cooperative=False)
+    report = admission.admit_kimi_k3_megamoe_compiled_kernel(
+        compiled,
+        group_rank=0,
+        expert_start=0,
+        timeout_ns=1_000_000_000,
+    )
+    assert not report.launch_cooperative_grid
+    assert report.occupancy == 1
+    assert report.compute_units == 256
+    assert report.resident_capacity == 256
+    assert report.resident_capacity >= report.programs
+
+
+def test_amd_code_admission_rejects_cooperative_metadata(monkeypatch) -> None:
+    """Do not silently recover the side-stream cooperative launch path."""
+
+    admission = _patch_host_code_admission(monkeypatch, compute_units=256)
+    compiled, _ = _fake_loaded_code(cooperative=True)
+    with pytest.raises(RuntimeError, match="ordinary launch is required"):
+        admission.admit_kimi_k3_megamoe_compiled_kernel(
+            compiled,
+            group_rank=0,
+            expert_start=0,
+            timeout_ns=1_000_000_000,
+        )
+
+
+def test_amd_code_admission_rejects_insufficient_resident_capacity(
+    monkeypatch,
+) -> None:
+    """Loaded occupancy alone is insufficient for a P240 software barrier."""
+
+    admission = _patch_host_code_admission(monkeypatch, compute_units=239)
+    compiled, _ = _fake_loaded_code(cooperative=False)
+    with pytest.raises(RuntimeError, match="239 resident slots < 240 programs"):
+        admission.admit_kimi_k3_megamoe_compiled_kernel(
+            compiled,
+            group_rank=0,
+            expert_start=0,
+            timeout_ns=1_000_000_000,
+        )
 
 
 def test_amd_system_waits_and_fatal_entry_protocols() -> None:

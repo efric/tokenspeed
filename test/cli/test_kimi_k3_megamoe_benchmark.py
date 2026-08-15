@@ -171,6 +171,16 @@ def test_server_arms_differ_by_only_experimental_flag() -> None:
     ]
 
 
+def test_benchmark_env_forces_fatal_epoch_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PYTHONPATH", "/tmp/wrong-checkout")
+    monkeypatch.setenv("TOKENSPEED_K3_MEGAMOE_FATAL_EPOCH_D2H", "0")
+    env = benchmark._benchmark_env()
+    assert "PYTHONPATH" not in env
+    assert env["TOKENSPEED_K3_MEGAMOE_FATAL_EPOCH_D2H"] == "1"
+
+
 def _cli_contract_report(*, prefix_caching_arm: str | None = None) -> dict:
     flag_off = benchmark.build_server_command(False)[2:]
     flag_on = benchmark.build_server_command(True)[2:]
@@ -190,7 +200,7 @@ def _cli_contract_report(*, prefix_caching_arm: str | None = None) -> dict:
             "engine": flag_on,
             "gateway": ["same-gateway"],
             "flag": True,
-            "disable_overlap_schedule": True,
+            "disable_overlap_schedule": False,
             "enable_prefix_caching": False,
             "load_format": "auto",
             "world_size": 8,
@@ -370,6 +380,14 @@ def test_server_log_requires_activation_and_rejects_fatal_epoch(tmp_path: Path) 
     server_log.write_text(
         benchmark.ACTIVATION_MARKER
         + "\nKimi-K3 MegaMoE reported fatal epoch 7; discard output",
+        encoding="utf-8",
+    )
+    with pytest.raises(benchmark.BenchmarkError, match="fatal MegaMoE log"):
+        benchmark.scan_server_log(server_log, enabled=True)
+
+    server_log.write_text(
+        benchmark.ACTIVATION_MARKER
+        + "\nKimi-K3 MegaMoE per-result fatal-epoch D2H check is disabled",
         encoding="utf-8",
     )
     with pytest.raises(benchmark.BenchmarkError, match="fatal MegaMoE log"):
