@@ -181,16 +181,17 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
   released. The throughput measurements are accepted flag-off controls, but
   the unstable B1/B16 distributions require paired contemporaneous
   baseline/candidate runs for a performance claim.
-- **Fresh normal-trace critical path:** the accepted B1/B8 traces contain 64
-  and 72 complete all-rank 92-layer sweeps. Median per-rank B1 span was
-  32.087 ms, with 1.209 ms W13, 0.866 ms W2, 4.162 ms Iris, and 22.260 ms with
-  no executing GPU kernel. B8 was 45.814/6.412/3.016/11.599/19.248 ms for the
-  same fields. No other stream filled those intervals. They are verified
-  graph/event/collective dependency intervals, not yet attributed to the host.
-  A compute-only redesign therefore cannot close the dominant B1 interval;
-  K1 candidates must measure producer-to-Iris progress and all-rank skew as
-  well as expert arithmetic. This is normal timeline evidence only; decoded
-  ATT remains required for compute-unit/SIMD conclusions.
+- **Fresh profiled-timeline correction:** the accepted B1/B8 traces contain 64
+  and 72 complete all-rank 92-layer sweeps. Their profiled per-rank medians were
+  32.087/45.814 ms for the anchor span, 2.075/9.428 ms for W13+W2, and
+  22.260/19.248 ms with no executing GPU kernel. The no-kernel intervals recur
+  at fixed trace-event positions across unrelated kernel pairs, and the B1
+  no-kernel median alone exceeds the unprofiled 15.49-ms/token control. Treat
+  those intervals, the anchor spans, and profiler-derived Iris skew as
+  instrumentation perturbation—not production critical path or host idle.
+  Retain kernel ordering/counts and approximate profiled kernel sums only.
+  Any idle/skew claim requires a paired less-perturbing rocprofv3/event
+  timeline; decoded ATT remains required for compute-unit/SIMD conclusions.
 - **Why historical throughput is stale:** top main keeps AMD decode batches
   through M16 on one AttnRes stream (`4d7886bc`), adds a fused B8/B16 AttnRes
   graph (`41b1e6c6`), and fuses the KDA decode core (`3c16d939`). The multicast
@@ -472,15 +473,19 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
   TP-shaped rather than an EP-spine adaptation. Its first falsifier is the
   standalone K1 plus combine against the progress-safe two-launch TP control;
   the 3.5-MiB route-row materialization and long W2 suffix are explicit risks.
-- **Active B1 bottom-up counterfactual:** keep current route ownership and test
+- **Deprioritized B1 bottom-up counterfactual:** keep current route ownership
+  and test
   exact-K3 constexpr specialization plus one-tile VMEM lookahead in
   `situ_decode` W13/W2. The intended schedule issues the next packed
   weight/scale/activation loads before consuming the current tile and braids
-  independent gate/up chains; it adds no LDS phase or cross-workgroup edge.
-  Compile runtime-K, constexpr-K, lookahead, and static-top-k controls. Reject
-  unless AMDGCN exposes a wider independent load window without lost resident
-  waves/spills and matched B1 timing wins; source annotations alone are not
-  evidence.
+  independent gate/up chains; it adds no LDS phase or cross-workgroup edge. The
+  fresh e784 all-rank W13 objects already issue all 20 buffer loads before the
+  first progressive VMEM wait and report 127 VGPR, 38 SGPR, zero LDS, and four
+  waves/SIMD. A same-tile source braid is therefore already present in emitted
+  code. Compile runtime-K, constexpr-K, and cross-iteration-lookahead controls
+  only after the compact-route candidate. Reject unless AMDGCN proves a new
+  cross-iteration window without losing resident waves/spilling and matched B1
+  timing wins; source annotations alone are not evidence.
 - **Deferred -- per-route W13 gates in the current static ownership:** the
   existing 16-wide `w13_arrival`, `w13_gate`, and `w13_target` planes can express
   exact route gates for `L<=8`, and the dependency graph is deadlock-free when
@@ -705,11 +710,11 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
   proof:
   `/home/ericfeng/distributed/.worktrees/tokenspeed/agent/kimi-k3-fresh-main-bench-e7842295/profile_default/kimi-k3-main-e7842295-fresh-20260815T002420Z/REPORT.md`
   (corrected SHA-256
-  `079d23f0c207586ab2d2548b5460a99137e65f8abfb60642f18c0ddba5354175`),
-  normal-trace critical-path analysis in `NORMAL_TRACE_ANALYSIS.md` (SHA-256
-  `bec4b0d48992777b1c6422a6c78de47d92cd0ddc8d50fdf2c77ae68c2cb7a90a`),
+  `3da36cfe8e36241442668944e19dc9827831fa5f9017e602cadf12c458ded1df`),
+  normal-trace perturbation analysis in `NORMAL_TRACE_ANALYSIS.md` (SHA-256
+  `7e30ce01c4a0c3374d16f4807551f7c6a19769c905a46163dbda3f560708668d`),
   with compact 69-entry `SHA256SUMS` (SHA-256
-  `55ec8fe26104a11d1f763ea30affe855452386f8919489e5d726a76784153f75`)
+  `e7e61382df58fd14cfd820fc4302ea843b303f8fd4d76734e0b7d17b559ad198`)
   and `cleanup-evidence.txt` (SHA-256
   `1b6c345d61d5adf25a727d67f30c3c69354a94ad47f7cfe00b737b074b41ad2c`).
   The manifest covers all benchmark inputs/databases/summaries, 16 accepted
