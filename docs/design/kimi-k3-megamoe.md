@@ -181,6 +181,16 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
   released. The throughput measurements are accepted flag-off controls, but
   the unstable B1/B16 distributions require paired contemporaneous
   baseline/candidate runs for a performance claim.
+- **Fresh normal-trace critical path:** the accepted B1/B8 traces contain 64
+  and 72 complete all-rank 92-layer sweeps. Median per-rank B1 span was
+  32.087 ms, with 1.209 ms W13, 0.866 ms W2, 4.162 ms Iris, and 22.260 ms with
+  no executing GPU kernel. B8 was 45.814/6.412/3.016/11.599/19.248 ms for the
+  same fields. No other stream filled those intervals. They are verified
+  graph/event/collective dependency intervals, not yet attributed to the host.
+  A compute-only redesign therefore cannot close the dominant B1 interval;
+  K1 candidates must measure producer-to-Iris progress and all-rank skew as
+  well as expert arithmetic. This is normal timeline evidence only; decoded
+  ATT remains required for compute-unit/SIMD conclusions.
 - **Why historical throughput is stale:** top main keeps AMD decode batches
   through M16 on one AttnRes stream (`4d7886bc`), adds a fused B8/B16 AttnRes
   graph (`41b1e6c6`), and fuses the KDA decode core (`3c16d939`). The multicast
@@ -338,10 +348,18 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
 - **Host-qualified clean-sheet design -- routed MoE EP8:** ordinary P240 is
   only the measured control. The frozen design splits K0 projection/schedule,
   a resident event-driven K1 routed/shared core plus joint reduction, and K2
-  final projection. Its first K1 discriminator uses separate W13 producers and
-  W2 consumers in a measured P256 placement; B1 is output-centric vector GEMV,
-  while B8/B16 compare exact route-direct/vector work with stable exact-ragged
-  buckets and MFMA only where measured expert-row reuse exists. One symmetric
+  final projection. Fixed W13-producer and W2-consumer workgroup ranges are not
+  progress-safe under an ordinary launch: loaded capacity does not prove that
+  the producer range is initially resident. The first K1 correctness and timing
+  discriminator is therefore a bounded W13-to-W2 split. A future single-launch
+  arm must use a unified ready-work queue whose resident workgroups can perform
+  either role; it cannot poll an exclusively owned unscheduled producer.
+  B1 remains output-centric vector GEMV. B8/B16 are vector-first too: under the
+  exact uniform-top16-per-token model, an EP8 rank expects only 0.931/3.630
+  experts with at least two rows at B8/B16, 0.033/0.300 with at least three,
+  and 0.00075/0.01745 with at least four. Thus M2 weight-once vector batching is
+  the only default reuse tier; MFMA is gated by the actual served route
+  histogram and weighted whole-K1 timing. One symmetric
   payload has distinct monotonic ready and completion planes. Every subgroup
   issuing peer VMEM acquires for itself; the only alternative is one acquiring
   leader loading fresh/versioned LDS followed by a workgroup barrier. Twelve
@@ -407,10 +425,14 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
   checkpoint ownership, uses EP8 only as a numerical/throughput comparator,
   and retains no all-to-all, AITER dependency, FP8 intermediate, or physical
   K512 padding. The first routed-core-only R0 discriminator consumes prepared
-  `z`/top-k, runs 384 W13 N16 tasks through K `[1024,1024,1024,512]`, one local
-  gate, then 224 output-owned W2 N16 tasks through exact K `[256,128]` with two
-  four-subgroup cohorts; sweep P224/P240/P248 against one-stage and bounded
-  two-kernel controls. J0 later publishes one joint shared+routed lane and
+  `z`/top-k and compares the current exact route-direct mechanics against an
+  N8/N16 task matrix. Its primary progress-safe form is a bounded W13-to-W2
+  split; loaded occupancy times compute-unit count is only a capacity upper
+  bound, so the one-launch cumulative-gate form is explicitly ineligible for
+  production promotion. Real B8/B16 route histograms drive any ragged reuse
+  arm: duplicate-route fractions are only 6.03%/12.34%, so synthetic dense
+  MFMA buckets cannot establish a win. J0 later publishes one joint
+  shared+routed lane and
   preserves the qualified destination-local-first, increasing-peer recurrence
   on every rank. J1 owner/scatter changes that arithmetic and is B8/B16-only
   behind numerical tolerance and a critical-path win. Its refreshed 287-check
@@ -661,9 +683,11 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
   proof:
   `/home/ericfeng/distributed/.worktrees/tokenspeed/agent/kimi-k3-fresh-main-bench-e7842295/profile_default/kimi-k3-main-e7842295-fresh-20260815T002420Z/REPORT.md`
   (corrected SHA-256
-  `ebc5341d304a5a86adcbb28df064fa08745446fc221f7161859b3aa755a06bdf`),
-  with compact 68-entry `SHA256SUMS` (SHA-256
-  `0037b2332ead0a25ecb8d8d67bc5fea2f25a8b1acec2c96bbab3aac23cfc2ceb`)
+  `079d23f0c207586ab2d2548b5460a99137e65f8abfb60642f18c0ddba5354175`),
+  normal-trace critical-path analysis in `NORMAL_TRACE_ANALYSIS.md` (SHA-256
+  `bec4b0d48992777b1c6422a6c78de47d92cd0ddc8d50fdf2c77ae68c2cb7a90a`),
+  with compact 69-entry `SHA256SUMS` (SHA-256
+  `55ec8fe26104a11d1f763ea30affe855452386f8919489e5d726a76784153f75`)
   and `cleanup-evidence.txt` (SHA-256
   `1b6c345d61d5adf25a727d67f30c3c69354a94ad47f7cfe00b737b074b41ad2c`).
   The manifest covers all benchmark inputs/databases/summaries, 16 accepted
