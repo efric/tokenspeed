@@ -367,10 +367,14 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
   serving policy. No kernel has compiled or run. The selectively refreshed
   current-main artifacts are integrated in signed commit `f668b6df`; final
   design/oracle hashes are `fda0e4e0...` and `a2cde425...`. First post-refresh
-  implementation is a standalone B8 local K1
-  core against the existing route-direct control and a fully bounded control;
-  it must pass normal timeline and targeted CU/SIMD ATT gates before Iris or
-  production integration.
+  executable is a B8/B16 rank-local compact-route vector pool. The current W13
+  control launches 49,152/98,304 global route/N8 workgroups per rank, of which
+  balanced EP8 makes only 6,144/12,288 useful. The candidate preserves original
+  token/slot ordinals, replaces remote early-return workgroups with a bounded
+  256/512-workgroup grid-stride pool over useful records, and leaves
+  output-owned W2 plus Iris unchanged. Its falsifier includes compaction cost;
+  it must beat the exact route-direct body on identical saved routes before any
+  joint-kernel or production integration.
 
 - **Deferred until the post-refresh control -- phase critical path:** the first
   bounded all-rank runner compiled production, compile-time-false control, and
@@ -459,6 +463,24 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
   candidates use no K-tail mask; padded controls retain it. Implementation
   independence and performance remain **deferred** because this clean-sheet
   design has not yet produced a kernel.
+- **Active TP8 B16 architectural counterfactual:** K384 permits one independent
+  workgroup per `(token, slot)` to compute all 384 W13 channels, hold the 768-B
+  BF16 SiTU activation in LDS, cross a workgroup barrier, then compute all 3,584
+  W2 outputs without any cross-workgroup poll. B16 supplies exactly 256 such
+  equal-work routes; a second bounded launch combines route rows in original
+  slot order before the future joint TP reduction. This is independently
+  TP-shaped rather than an EP-spine adaptation. Its first falsifier is the
+  standalone K1 plus combine against the progress-safe two-launch TP control;
+  the 3.5-MiB route-row materialization and long W2 suffix are explicit risks.
+- **Active B1 bottom-up counterfactual:** keep current route ownership and test
+  exact-K3 constexpr specialization plus one-tile VMEM lookahead in
+  `situ_decode` W13/W2. The intended schedule issues the next packed
+  weight/scale/activation loads before consuming the current tile and braids
+  independent gate/up chains; it adds no LDS phase or cross-workgroup edge.
+  Compile runtime-K, constexpr-K, lookahead, and static-top-k controls. Reject
+  unless AMDGCN exposes a wider independent load window without lost resident
+  waves/spills and matched B1 timing wins; source annotations alone are not
+  evidence.
 - **Deferred -- per-route W13 gates in the current static ownership:** the
   existing 16-wide `w13_arrival`, `w13_gate`, and `w13_target` planes can express
   exact route gates for `L<=8`, and the dependency graph is deadlock-free when
