@@ -175,6 +175,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 def _get_kimi_k3_megamoe_api():
     """Import the experimental kernel API only for an enabled K3 process."""
 
@@ -2689,6 +2690,7 @@ class KimiLinearDecoderLayer(nn.Module):
                 prefix_sum,
                 num_global_tokens=num_global_tokens,
                 max_num_tokens_per_gpu=max_num_tokens_per_gpu,
+                ctx=ctx,
             )
         else:
             prefix_sum = prefix_sum + self.mlp(h)

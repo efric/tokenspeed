@@ -11,7 +11,7 @@ separates facts verified in the current repository and supplied profiling
 artifacts from design choices, and records which correctness, compiler, and
 performance gates were accepted or rejected.
 
-Canonical tuning state on 2026-08-14: the accepted correctness protocol is the
+Canonical tuning state on 2026-08-15: the accepted correctness protocol is the
 restored d5dad per-tile completion protocol. The ordinary-launch production
 candidate has kernel source SHA-256
 `b0314296919330245d04724afc6e8902c6e2e977936bb101e48e532fb92f5da7`;
@@ -22,6 +22,12 @@ exact-acquires the corresponding flag from all seven peers, and contributes to
 the rank-local communication gate. The experimental implementation marker
 remains `False`: the path is not performance-admitted and the existing fused
 kernels remain the production path.
+
+The research integration is rebased onto `origin/main` commit
+`e784229526ce11d272a3c4a0b3f64ab9a8973491`. This is a host/source integration
+state, not a renewed GPU qualification: all prior compiler objects, admission
+hashes, and throughput results are controls until regenerated from a
+worktree-bound refreshed environment.
 
 ## Living tuning ledger -- read this first
 
@@ -61,15 +67,32 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
   separate W13 producers from output-owned W2 consumers; task rings, new
   workgroup roles, workspace/API versions, and justified bounded splits remain
   available rather than being forced into P240.
+- **Two-direction design method:** work top-down from model equations to an
+  explicit task/ownership/event/launch DAG, using Mixture-of-Kittens, Fleet,
+  Iris GPT-OSS, and the prior MegaMoE results as mechanisms and negative
+  controls. Work bottom-up from CDNA4 ISA, gfx950 Gluon lowering, current fused
+  MoE code objects, normal timelines, and decoded ATT to an explicit subgroup
+  issue/lifetime/wait schedule. A candidate advances only when those views meet
+  in one concrete kernel organization with falsifiable source, ISA, and dynamic
+  overlap predictions.
+- **Reference rule:** existing megakernels and optimized TokenSpeed kernels set
+  the correctness contract, implementation-quality bar, and paired timing
+  controls; they do not bound the architecture search. Novel task queues,
+  cohorts, bounded splits, layouts, and APIs are encouraged when they preserve
+  the qualified arithmetic and happens-before edges and beat the real controls.
 - **XCD rule:** affinity is phase-specific. Use topology to balance bandwidth
   and control traffic; never inherit a whole-expert/XCD mapping without a
   phase-local A/B test.
 - **Promotion rule:** resources and occupancy are only prerequisites. A serious
   candidate also needs CU/SIMD evidence for live-wave issue overlap, waits,
   barriers, dependencies, instruction fetch, and XCD balance.
-- **Integration order:** finish the frozen-base research round and ledger, then
-  commit it, fetch/rebase onto top of main, rebuild worktree-bound environments,
-  measure fresh B1/B8/B16 controls, and requalify only surviving designs.
+- **Integration status:** the frozen-base round and ledger are committed, and
+  the primary integration is rebased onto `e7842295`. Selective clean-sheet
+  EP8/TP8 artifact refresh and the isolated fresh B1/B8/B16 flag-off benchmark
+  are complete. Independent rank-local EP8 K1 and routed-TP8 R0 contracts are
+  under host review. Rebuild every worktree-bound environment and requalify
+  source, compiler, numerical, protocol, and whole-CU/SIMD evidence before
+  promotion.
 
 ### Canonical checkout and execution path
 
@@ -101,18 +124,27 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
   accumulation order, communication happens-before edges, and fail-stop
   contract; everything else must earn its place experimentally. Target the
   explicit event/task structure and implementation quality of
-  Mixture-of-Kittens rather than forcing new mechanisms into P240.
-- **Verified call path:**
+  Mixture-of-Kittens rather than forcing new mechanisms into P240. Likewise,
+  treat current route-direct and fused MoE kernels as strong controls and a
+  library of proven primitives, not a requirement to preserve their launch or
+  ownership architecture.
+- **Verified rebased MegaMoE B1 call path:**
 
   ```text
-  KimiLinearMoE.forward (python/tokenspeed/runtime/models/kimi_k3.py:1684)
-      -> kimi_k3_megamoe_decode (tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/megamoe/api.py:165)
-          -> launch_gfx950 (tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/megamoe/gluon.py:353)
-              -> launch_prepared_kimi_k3_megamoe_gfx950 (tokenspeed-kernel-amd/python/tokenspeed_kernel_amd/ops/gfx950/moe/megamoe/kernel.py:2571)
-                  -> _kimi_k3_megamoe_kernel (:1879)
-                      -> _expert_phases (:1243)
-                      -> _iris_communication_tile (:1547)
+  KimiLinearDecoderLayer.forward (python/tokenspeed/runtime/models/kimi_k3.py:2736)
+      -> KimiLinearMoE.forward(ctx=...) (:1866)
+          -> kimi_k3_megamoe_decode (tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/megamoe/api.py:164)
+              -> launch_gfx950 (tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/megamoe/gluon.py:352)
+                  -> launch_prepared_kimi_k3_megamoe_gfx950 (tokenspeed-kernel-amd/python/tokenspeed_kernel_amd/ops/gfx950/moe/megamoe/kernel.py:2571)
+                      -> _kimi_k3_megamoe_kernel (:1879)
+                          -> _expert_phases (:1243)
+                          -> _iris_communication_tile (:1547)
   ```
+
+  Top main added a second B8/B16 fused-AttnRes caller. The rebase now forwards
+  the same `ForwardContext` there as well; without it, cross-DP gathering and a
+  future multi-row MegaMoE dispatch would silently lose their mode/topology
+  contract.
 
 ### Performance scoreboard
 
@@ -126,6 +158,30 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
   25.1% at B16. These are topology/mechanism controls on `fb00a5be`, not the
   post-research top-of-main acceptance baseline; refresh all three after the
   current research round.
+- **Fresh top-main baseline, accepted flag-off control:** an isolated
+  `e7842295` checkout and dedicated four-editable venv measured
+  **64.5470 / 218.6030 / 299.2670 output tok/s** at B1/B8/B16 for exact
+  4096-to-1024 flag-off requests. B1 samples were
+  `[63.6174, 36.0594, 64.9258, 64.5470, 65.4230]`; B8 samples were
+  `[209.7782, 218.6030, 221.1730]`; B16 samples were
+  `[254.3578, 316.3505, 327.8045, 299.2670, 210.5328]`. The frozen variance
+  rule added exactly two B1/B16 repetitions; retain their wide ranges as a
+  caveat rather than hiding them. Every database row passed success and exact
+  prompt/output token counts, every prompt fingerprint matched within batch,
+  and all five B1 completions were identical. Separate GPU-only traces prove on
+  every rank that B1 executed the latent-input, Kimi top-k, direct W13/W2,
+  Iris, and fused-final kernels; B8/B16 executed packed projection, split
+  epilogue, route-direct top-k, direct W13/W2, and Iris. Grouped W13/W2
+  fallbacks were absent. The server exited gracefully, ports and device owners
+  were empty, all eight cards returned to 0% use/VRAM, and the exclusive lease
+  was released. These are accepted flag-off controls, but the unstable B1/B16
+  distributions require paired contemporaneous baseline/candidate runs for a
+  performance claim.
+- **Why historical throughput is stale:** top main keeps AMD decode batches
+  through M16 on one AttnRes stream (`4d7886bc`), adds a fused B8/B16 AttnRes
+  graph (`41b1e6c6`), and fuses the KDA decode core (`3c16d939`). The multicast
+  latent tail from `3c8fb5cb` is gated off for the current native gfx950 K3
+  plan, so it is preserved but not counted as an AMD control improvement.
 - **Retained 04bc control:** the older matched checkout measured
   **58.0592 / 193.2465 / 298.7008 output tok/s** at B1/B8/B16. It is useful for
   detecting gross drift only; it must not replace the fresh same-checkout
@@ -286,9 +342,10 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
   issuing peer VMEM acquires for itself; the only alternative is one acquiring
   leader loading fresh/versioned LDS followed by a workgroup barrier. Twelve
   host oracle cases pass, including exact route work and B8/B16 nondeterministic
-  serving policy. No kernel has compiled or run. Frozen commits are `8317e6f1`
-  plus corrective `8129173a`; final design/oracle hashes are `f7088beb...` and
-  `d5a702f7...`. First post-refresh implementation is a standalone B8 local K1
+  serving policy. No kernel has compiled or run. The selectively refreshed
+  current-main artifacts are integrated in signed commit `f668b6df`; final
+  design/oracle hashes are `fda0e4e0...` and `a2cde425...`. First post-refresh
+  implementation is a standalone B8 local K1
   core against the existing route-direct control and a fully bounded control;
   it must pass normal timeline and targeted CU/SIMD ATT gates before Iris or
   production integration.
@@ -352,9 +409,11 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
   two-kernel controls. J0 later publishes one joint shared+routed lane and
   preserves the qualified destination-local-first, increasing-peer recurrence
   on every rank. J1 owner/scatter changes that arithmetic and is B8/B16-only
-  behind numerical tolerance and a critical-path win. Its 273-check host oracle
-  passes; no kernel has compiled or run. Frozen signed commit `19e30183`; final
-  design/oracle/checker hashes `fa812161...`/`64c3616b...`/`9af3b08f...`.
+  behind numerical tolerance and a critical-path win. Its refreshed 287-check
+  host oracle passes; no kernel has compiled or run. The selectively refreshed
+  current-main artifacts are integrated in signed commit `f668b6df`; final
+  design/oracle/checker hashes
+  `5df0eca2...`/`f1f5c42e...`/`0a2bdd87...`.
   The prior P1 probe was an EP-spine adaptation and cannot reject this design.
   Retain from it only topology measurements, exact K384, the 18.71-GiB K512
   padding diagnosis, and the joint-reduction goal. In that old implementation,
@@ -419,21 +478,55 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
 - **Existing optimized TokenSpeed MoE kernels are first-class controls:** the
   fused K3 path packs router/routed/shared input projections only when their
   rows share one allocation and 128-row region boundaries
-  (`tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/latent_input.py:19-57`),
+  (`tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/latent_input.py:19-88`),
   then calls one expert/shared operation and one joint reduction
-  (`python/tokenspeed/runtime/models/kimi_k3.py:1636-1679`;
-  `python/tokenspeed/runtime/layers/moe/latent.py:141-181`). On gfx950, the
+  (`python/tokenspeed/runtime/models/kimi_k3.py:1771-1830`;
+  `python/tokenspeed/runtime/layers/moe/latent.py:187-233`). On gfx950, the
   registered routed kernel selects route-direct vector W13/W2 for contiguous
   M1..M16 and otherwise the grouped MFMA implementation
-  (`tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/gluon/mxfp4.py:125-190`).
+  (`tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/gluon/mxfp4.py:99-203`).
   Route-direct avoids sorting and per-expert 64-row padding, preserves the BF16
   W2 boundary, and combines original top-k slots directly
-  (`tokenspeed-kernel-amd/python/tokenspeed_kernel_amd/ops/gfx950/moe/mxfp4/situ_decode.py:26-36,72-433`);
+  (`tokenspeed-kernel-amd/python/tokenspeed_kernel_amd/ops/gfx950/moe/mxfp4/situ_decode.py:441-713`);
   grouped MFMA intentionally pads each expert to 64 rows
-  (`.../situ_grouped.py:45-48,187-412`). Every redesign must retain these as
+  (`.../situ_grouped.py:43-55,700-921`). Every redesign must retain these as
   paired controls and justify changes to routing, weight layout, tile shape,
   reduction, and launch separately. Do not call a new megakernel win when it
   merely compares against an untuned generic fallback.
+
+  ```text
+  KimiLinearMoE.forward (python/tokenspeed/runtime/models/kimi_k3.py:1866)
+      -> B1: _forward_fused_decode_pipeline (:1771)
+          -> latent_moe_expert_shared_all_reduce (python/tokenspeed/runtime/layers/moe/latent.py:187)
+              -> latent_moe_expert_shared (tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/latent_decode.py:144)
+                  -> gluon_latent_expert_shared_gfx950 (tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/gluon/latent_decode.py:21)
+                      -> gluon_a16w4_situ_warp_decode_ep_gfx950 (tokenspeed-kernel-amd/python/tokenspeed_kernel_amd/ops/gfx950/moe/mxfp4/situ_decode.py:441)
+      -> B8/B16: LatentMoELayer.forward (python/tokenspeed/runtime/layers/moe/latent.py:615)
+          -> registered gfx950 EP8 A16W4 apply (tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/gluon/mxfp4.py:134)
+              -> gluon_a16w4_situ_warp_decode_ep_gfx950 (situ_decode.py:441)
+          -> one joint shared+routed all_reduce (latent.py:761)
+  ```
+
+  The B1 control additionally fuses shared-down work into the route-direct
+  stage-two launch. B8/B16 use the ordinary native latent composition but
+  remain route-direct through M=16 when the exact layout guards pass.
+- **Reuse the optimized route-direct mechanics before replacing them:** its W13
+  workgroup assigns wave64 lanes to packed-K reduction, uses native CDNA4
+  `scaled_upcast`, and deliberately chooses a masked 1,024-byte K tile for the
+  K3 1,792-byte packed width because it beat five more loop iterations
+  (`situ_decode.py:21-35,46-54,75-177`). Its output-owned W2 workgroup visits
+  original top-k slots, skips remote experts, casts each route result through
+  BF16 before FP32 route weighting, and uses an exact packed-K tile
+  (`:256-438,640-711`). B1/B8/B16 clean-sheet work should first compose or
+  pipeline these proven computations; any new MFMA, ownership, or staging
+  scheme must beat them directly and explain its changed CU/SIMD issue mix.
+- **Top-main XCD control:** K3's executed `situ_decode.py` route-direct path has
+  no XCD swizzle. The general A4 family disables autotuned swizzling below 256
+  tiles or for small block-M and only enables eight-XCD mappings on compatible
+  divisible grids (`mxfp4/fused/tuning.py:265-282`); its medium M8/M16 launcher
+  deliberately uses identity mapping and one stage
+  (`mxfp4/fused/launch.py:619-640`). This reinforces the measured rule: XCD
+  placement is a phase-and-shape experiment, never an inherited Fleet policy.
 - **Triton gfx950 Gluon -- transfer with qualification:** the general
   `warp_pipeline_stage` test compiles directly for gfx950 and checks the emitted
   `s_setprio` schedule
@@ -560,6 +653,18 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
 
 ### Evidence index
 
+- Fresh `e7842295` B1/B8/B16 flag-off baseline and all-rank optimized-dispatch
+  proof:
+  `/home/ericfeng/distributed/.worktrees/tokenspeed/agent/kimi-k3-fresh-main-bench-e7842295/profile_default/kimi-k3-main-e7842295-fresh-20260815T002420Z/REPORT.md`
+  (SHA-256
+  `76ea57e8fc974db10bd1cf15d2b2149d014e38814b6a29e367e6879928bf8b22`),
+  with compact 68-entry `SHA256SUMS` (SHA-256
+  `cb510d67df20234eff911b41d54f96b8e1e5f65a9448118f1c2363cb9875c9a1`)
+  and `cleanup-evidence.txt` (SHA-256
+  `1b6c345d61d5adf25a727d67f30c3c69354a94ad47f7cfe00b737b074b41ad2c`).
+  The manifest covers all benchmark inputs/databases/summaries, the 24 chosen
+  per-rank decode traces, logs, report, and cleanup; the full compiler cache is
+  deliberately excluded.
 - Historical paired d5dad rejection:
   `profile_default/kimi-k3-megamoe-final-d5dad-20260814T120409Z/comparison.json`.
 - Cooperative stream diagnosis:
@@ -607,36 +712,34 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
   `profile_default/kimi-k3-routed-tp8-p1-20260814T2136Z-I0ket1/`.
 - Routed-TP8 exact-N32 layout failure:
   `profile_default/kimi-k3-routed-tp8-p1-gpu2-20260814TXXXXXXZ-yYZfUD/`.
-- Clean-sheet routed-EP8 design/oracle (signed commits
-  `8317e6f1e132dca27d5c5c95ad1ec48d93385d3b` and
-  `8129173ab75ce473a04e495f1a55db14af5f0a80`; 12 host oracle cases; no
-  compile or GPU run):
-  `/home/ericfeng/distributed/.worktrees/tokenspeed/agent/megamoe-ep8-cleansheet/docs/design/kimi-k3-megamoe-ep8-cleansheet.md`
-  (`f7088beb1b02cc043ea55de505d5f2b81a87f06210f48b1a3e2bf0aee8581f2b`),
+- Clean-sheet routed-EP8 design/oracle (selectively refreshed current-main
+  signed commit `f668b6dfcc0e785352b7888d23d84d2adb90ba30`; 12 host oracle
+  cases and 8 host tests; no compile or GPU run):
+  `docs/design/kimi-k3-megamoe-ep8-cleansheet.md`
+  (`fda0e4e022029ce504ac7d2912cd75e56db1ad6df36c96a0cfb345babe393dc7`),
   `tools/megamoe/kimi_k3_ep8_cleansheet_oracle.py`
-  (`d5a702f79dd6cb872c03aae5c8ee8799b0b05aa5d9d0f9a0171cd7fab593b722`),
+  (`a2cde425475d87d7bb2ee4675389f348ec9bf2144b3c6181734566afb8ec08ec`),
   `test/cli/test_kimi_k3_ep8_cleansheet_oracle.py`
-  (`a69e963bc12863c94f0c21d9fdaa884acc3855752fc007702392a6f23b6bb17b`),
+  (`81f6fa9ba5865d9956cd1b103340a252764f948f702b4c62f6ece320121285e3`),
   and `tools/megamoe/README.md`
-  (`10a52a59265542be2e66f16f93d787a5c793e3ed8727ac676857edcc79c93e30`).
+  (`b61d9df5127fa9df4228f6596c5e3a4748e6990050a2b3d22ed9cecfee144c92`).
   The generated `/tmp/kimi_k3_ep8_cleansheet_oracle-v2.json`
   (`b9825be6c26ffcf745e1fb1edbf80a445059fdfcde41fff87338b60ceadecd15`)
   is ephemeral, not a repository artifact.
-- Clean-sheet routed-TP8/EP1 design/oracle (signed commit
-  `19e30183469abc87b6823d25c8c3cdd7b02769f7`; 273 host checks; no compile
-  or GPU run):
-  `/home/ericfeng/distributed/.worktrees/tokenspeed/agent/megamoe-tp8-cleansheet/docs/design/kimi-k3-tp8-cleansheet.md`
-  (`fa812161472c878b829966ae05e088def2f74e58bd3d87d0b39658185de0c32f`),
+- Clean-sheet routed-TP8/EP1 design/oracle (selectively refreshed current-main
+  signed commit `f668b6dfcc0e785352b7888d23d84d2adb90ba30`; 287 host checks;
+  no compile or GPU run):
+  `docs/design/kimi-k3-tp8-cleansheet.md`
+  (`5df0eca2c161cf84b6bfcb4a221e0887e93e921e81f4bacc9c551259cd8f56aa`),
   `docs/design/probes/kimi-k3-tp8-cleansheet-oracle-20260814.json`
-  (`64c3616bfdb3d58567d5e6f15c15a4f9254b8fefe71ba3e3dd1f42af77867c04`),
+  (`f1f5c42e6b35b5e295f2d5e762487a79fd8c38bbfb4dc1ec2587b897e0a6fce9`),
   and `tools/megamoe/verify_kimi_k3_tp8_cleansheet_oracle.py`
-  (`9af3b08fe39e548bb001c45ee0d6d37a804d426032a195ed0381f87f6de4d92e`).
-- **Integration warning:** EP initial commit `8317e6f1` contains only its four
-  intended files. EP corrective commit `8129173a` and TP commit `19e30183`
-  each also contain 21 pre-existing files reformatted by the required
-  repository-wide pre-commit run. After refreshing main, transplant only the
-  intended design/oracle/test/README artifacts; do not cherry-pick either
-  formatter-swept commit wholesale.
+  (`0a2bdd87699163319da811acccf15f3db2ee3eeafdc2d85a8c6f9e0592e53035`).
+- **Integration warning resolved:** the pre-refresh EP corrective commit
+  `8129173a` and TP commit `19e30183` each carried 21 unrelated formatter
+  changes and were not cherry-picked. Commit `f668b6df` contains only the seven
+  intended refreshed research artifacts plus the conflict-resolved existing
+  MegaMoE tools README.
 - Initial EP8-versus-TP8 hypotheses:
   `ep8vstp8.txt` (SHA-256
   `c6e75d78be409f34df2485afca39474e83ff19b5ef2f337e1d70d34283ee8b85`;
@@ -649,6 +752,14 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
 
 ### External TP evidence and memory decision
 
+- **Verified top-main gap:** routed TP8/EP1 is still a clean-sheet problem.
+  `Kimi3MoEExecutionPlan.build` enables the joint reduction only for TP1 with
+  EP>1 (`python/tokenspeed/runtime/layers/moe/latent.py:288-293`), the exact
+  gfx950 K3 apply is registered only for EP8
+  (`tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/gluon/mxfp4.py:99-132`),
+  and K3 up-projection sharding remains NVIDIA-only
+  (`python/tokenspeed/runtime/models/kimi_k3.py:605-611`). Top main has not
+  silently supplied a correct AMD routed-TP8 orchestration or joint reduction.
 - **External evidence, not our qualification:** issue
   [#56](https://github.com/raikonenfnu/tokenspeed/issues/56) reports a
   numerically correct routed-TP arm that improves B8/B16 over issue
@@ -695,10 +806,10 @@ Disposition labels are: **integrated**, **retain**, **rejected**,
 - Qualify in order: host/source oracle -> rank-zero compile/ISA -> bounded
   numerical microprobe -> full-body rank zero -> world eight skew/reuse/fail
   stop -> matched unprofiled output-throughput benchmark at B1, B8, or B16.
-- Finish the current frozen-base research round before pulling top-of-main.
-  Then rebase/fix every surviving branch and rerun its source, compiler,
+- The frozen-base research round is complete and the integration is now on
+  `e7842295`. Rebase/fix every surviving branch and rerun its source, compiler,
   resource, and numerical gates; stale code-object hashes are never carried
-  across that refresh.
+  across this refresh.
 - The shared qualified venv is editable-wired to the primary checkout, and its
   scheduler import finder outranks `PYTHONPATH`. A refreshed-worktree benchmark
   must use a dedicated cloned venv with all four repository editables rebound

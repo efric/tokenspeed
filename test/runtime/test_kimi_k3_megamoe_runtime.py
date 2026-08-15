@@ -216,7 +216,16 @@ def _bare_moe(*, plan=object()) -> kimi_k3.KimiLinearMoE:
     nn.Module.__init__(moe)
     moe._kimi_k3_megamoe_enabled = True
     moe._kimi_k3_megamoe_plan = plan
+    moe._gather_dp_tokens_for_moe = False
     return moe
+
+
+def _forward_context(*, is_decode_or_idle: bool) -> SimpleNamespace:
+    return SimpleNamespace(
+        forward_mode=SimpleNamespace(
+            is_decode_or_idle=lambda: is_decode_or_idle,
+        )
+    )
 
 
 def test_m1_decode_dispatches_megamoe_and_missing_plan_is_fatal() -> None:
@@ -236,7 +245,7 @@ def test_m1_decode_dispatches_megamoe_and_missing_plan_is_fatal() -> None:
             prefix,
             num_global_tokens=1,
             max_num_tokens_per_gpu=1,
-            is_decode_or_idle=True,
+            ctx=_forward_context(is_decode_or_idle=True),
         )
     assert got is expected
     decode.assert_called_once_with(hidden, prefix, plan)
@@ -248,7 +257,7 @@ def test_m1_decode_dispatches_megamoe_and_missing_plan_is_fatal() -> None:
             prefix,
             num_global_tokens=1,
             max_num_tokens_per_gpu=1,
-            is_decode_or_idle=True,
+            ctx=_forward_context(is_decode_or_idle=True),
         )
 
 
@@ -271,7 +280,7 @@ def test_extend_or_m_greater_than_one_uses_existing_path(
         prefix,
         num_global_tokens=rows,
         max_num_tokens_per_gpu=rows,
-        is_decode_or_idle=is_decode_or_idle,
+        ctx=_forward_context(is_decode_or_idle=is_decode_or_idle),
     )
     assert got is expected
     native.assert_called_once()
@@ -432,16 +441,21 @@ def test_model_runner_enqueues_fatal_epoch_copy_nonblocking() -> None:
 
     first = ModelRunner.enqueue_kimi_k3_megamoe_fatal_epoch_d2h(runner)
     second = ModelRunner.enqueue_kimi_k3_megamoe_fatal_epoch_d2h(runner)
+    third = ModelRunner.enqueue_kimi_k3_megamoe_fatal_epoch_d2h(runner)
 
     assert first is fatal_cpu[0]
     assert second is fatal_cpu[1]
-    assert runner._kimi_k3_megamoe_fatal_epoch_copy_index == 2
-    fatal_cpu[0].copy_.assert_called_once_with(fatal_gpu, non_blocking=True)
+    assert third is fatal_cpu[0]
+    assert runner._kimi_k3_megamoe_fatal_epoch_copy_index == 3
+    assert fatal_cpu[0].copy_.call_args_list == [
+        mock.call(fatal_gpu, non_blocking=True),
+        mock.call(fatal_gpu, non_blocking=True),
+    ]
     fatal_cpu[1].copy_.assert_called_once_with(fatal_gpu, non_blocking=True)
 
     runner._kimi_k3_megamoe_fatal_epoch_d2h_enabled = False
     assert ModelRunner.enqueue_kimi_k3_megamoe_fatal_epoch_d2h(runner) is None
-    assert runner._kimi_k3_megamoe_fatal_epoch_copy_index == 2
+    assert runner._kimi_k3_megamoe_fatal_epoch_copy_index == 3
 
 
 def test_overlap_order_and_fatal_epoch_slots_form_a_safe_depth_one_pipeline() -> None:
