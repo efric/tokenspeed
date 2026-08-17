@@ -61,10 +61,19 @@ from pathlib import Path
 from typing import Any, Iterator, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+PRODUCTION_REPO_ROOT = Path(
+    "/home/ericfeng/distributed/.worktrees/tokenspeed/agent/"
+    "kimi-k3-fresh-main-bench-e7842295"
+)
 MODEL = Path("/data/models/moonshotai-Kimi-K3")
-VENV = Path("/home/ericfeng/distributed/.venvs/tokenspeed")
+VENV = Path("/home/ericfeng/distributed/.venvs/tokenspeed-fresh-main-e7842295")
 TS = VENV / "bin" / "ts"
 PYTHON = VENV / "bin" / "python"
+SCHEDULER_EXTENSION = (
+    VENV
+    / "lib/python3.12/site-packages/tokenspeed_scheduler/"
+    "tokenspeed_scheduler_ext.cpython-312-x86_64-linux-gnu.so"
+)
 EVALSCOPE = Path("/tmp/evalscope-perf/bin/evalscope")
 SYSTEM_ROCR = Path("/opt/rocm/lib/libhsa-runtime64.so.1")
 ROCM_SMI = Path("/opt/rocm/bin/rocm-smi")
@@ -78,9 +87,20 @@ _MAX_RESULT_DB_BYTES = 64 * 1024 * 1024
 _MAX_RESPONSE_MESSAGES = 65536
 _MAX_SEMANTIC_TEXT_CHARACTERS = 16 * 1024 * 1024
 
-HISTORICAL_ROOT = (
-    REPO_ROOT / "profile_default" / "kimi-k3-main-04bc0864-graph-20260813T062945Z"
+RUNTIME_IMPORT_ROOTS = (
+    REPO_ROOT / "python",
+    REPO_ROOT / "tokenspeed-kernel" / "python",
+    REPO_ROOT / "tokenspeed-kernel-amd" / "python",
+    PRODUCTION_REPO_ROOT / "tokenspeed-scheduler" / "python",
 )
+HISTORICAL_ROOT = Path(
+    os.environ.get(
+        "TOKENSPEED_K3_MEGAMOE_HISTORICAL_ROOT",
+        REPO_ROOT
+        / "profile_default"
+        / "kimi-k3-main-04bc0864-graph-20260813T062945Z",
+    )
+).resolve()
 HISTORICAL_COMMIT = "04bc08649f3e53e19144ee86564be7c6121c99d2"
 HISTORICAL_COMMANDS_SHA256 = (
     "8c0dcc3aab45f89574d634ba806503a7fca11118655affd5f9ddc9d51ada3681"
@@ -266,16 +286,21 @@ def _sha256_file(path: Path) -> str:
 def _source_fingerprint() -> str:
     digest = hashlib.sha256()
     roots = (
-        REPO_ROOT / "python",
-        REPO_ROOT / "tokenspeed-kernel" / "python",
-        REPO_ROOT / "tokenspeed-kernel-amd" / "python",
+        ("tokenspeed", REPO_ROOT / "python"),
+        ("tokenspeed_kernel", REPO_ROOT / "tokenspeed-kernel" / "python"),
+        (
+            "tokenspeed_kernel_amd",
+            REPO_ROOT / "tokenspeed-kernel-amd" / "python",
+        ),
+        ("tokenspeed_scheduler", PRODUCTION_REPO_ROOT / "tokenspeed-scheduler/python"),
     )
-    for root in roots:
+    for label, root in roots:
         for path in sorted(root.rglob("*.py")):
-            relative = path.relative_to(REPO_ROOT).as_posix().encode()
+            relative = f"{label}/{path.relative_to(root).as_posix()}".encode()
             digest.update(len(relative).to_bytes(4, "little"))
             digest.update(relative)
             digest.update(bytes.fromhex(_sha256_file(path)))
+    digest.update(bytes.fromhex(_sha256_file(SCHEDULER_EXTENSION)))
     return digest.hexdigest()
 
 
@@ -290,13 +315,73 @@ def _write_json(path: Path, value: object) -> None:
 
 def _benchmark_env() -> dict[str, str]:
     env = dict(os.environ)
-    env.pop("PYTHONPATH", None)
+    env["PYTHONPATH"] = os.pathsep.join(
+        str(path.resolve()) for path in RUNTIME_IMPORT_ROOTS
+    )
     env["LD_PRELOAD"] = str(SYSTEM_ROCR)
     env["PYTHONUNBUFFERED"] = "1"
     # A throughput result is not admissible when fail-stop observation is
     # disabled. Override inherited profiling environments for both arms.
     env["TOKENSPEED_K3_MEGAMOE_FATAL_EPOCH_D2H"] = "1"
     return env
+
+
+def _probe_import_contract(env: dict[str, str]) -> dict[str, str]:
+    code = r"""
+import importlib
+import json
+
+modules = (
+    "tokenspeed",
+    "tokenspeed_kernel",
+    "tokenspeed_kernel_amd",
+    "tokenspeed_scheduler",
+    "tokenspeed_scheduler.tokenspeed_scheduler_ext",
+)
+extension = importlib.import_module("tokenspeed_scheduler.tokenspeed_scheduler_ext")
+if not hasattr(extension.SchedulerConfig(), "prefix_granularity"):
+    raise RuntimeError("SchedulerConfig lacks prefix_granularity")
+kimi_k3 = importlib.import_module("tokenspeed.runtime.models.kimi_k3")
+if not hasattr(kimi_k3, "_get_kimi_k3_megamoe_api"):
+    raise RuntimeError("current Kimi K3 MegaMoE runtime flag path is absent")
+print("KIMI_IMPORT_CONTRACT=" + json.dumps({
+    name: importlib.import_module(name).__file__ for name in modules
+}))
+"""
+    result = _run_checked(
+        (str(PYTHON), "-c", code),
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    raw = _json_sentinel(result.stdout, "KIMI_IMPORT_CONTRACT=")
+    expected_roots = {
+        "tokenspeed": REPO_ROOT / "python" / "tokenspeed",
+        "tokenspeed_kernel": REPO_ROOT
+        / "tokenspeed-kernel"
+        / "python"
+        / "tokenspeed_kernel",
+        "tokenspeed_kernel_amd": REPO_ROOT
+        / "tokenspeed-kernel-amd"
+        / "python"
+        / "tokenspeed_kernel_amd",
+        "tokenspeed_scheduler": PRODUCTION_REPO_ROOT
+        / "tokenspeed-scheduler/python/tokenspeed_scheduler",
+        "tokenspeed_scheduler.tokenspeed_scheduler_ext": SCHEDULER_EXTENSION.parent,
+    }
+    report: dict[str, str] = {}
+    for name, expected_root in expected_roots.items():
+        value = raw.get(name)
+        if not isinstance(value, str):
+            raise BenchmarkError(f"import contract lacks a path for {name}: {value!r}")
+        path = Path(value).resolve()
+        if not path.is_relative_to(expected_root.resolve()):
+            raise BenchmarkError(
+                f"{name} imported outside the benchmark worktree: {path}"
+            )
+        report[name] = str(path)
+    return report
 
 
 def build_server_command(enabled: bool) -> list[str]:
@@ -332,7 +417,14 @@ def _run_checked(command: Sequence[str], **kwargs: Any) -> subprocess.CompletedP
 
 
 def _require_paths() -> None:
-    required_files = (TS, PYTHON, EVALSCOPE, SYSTEM_ROCR, ROCM_SMI)
+    required_files = (
+        TS,
+        PYTHON,
+        EVALSCOPE,
+        SYSTEM_ROCR,
+        ROCM_SMI,
+        SCHEDULER_EXTENSION,
+    )
     for path in required_files:
         if not path.is_file():
             raise BenchmarkError(f"required executable/object is missing: {path}")
@@ -577,6 +669,7 @@ def _preflight(include_megamoe: bool) -> dict[str, object]:
     report: dict[str, object] = {
         "timestamp_utc": _utc_now(),
         "historical": _verify_historical_artifact(),
+        "import_contract": _probe_import_contract(env),
         "evalscope_version": _probe_evalscope_version(env),
         "cli_contract": _probe_cli_contract(env),
         "system_rocr": {
@@ -1072,6 +1165,7 @@ def _manifest(preflight: dict[str, object], arms: Sequence[str]) -> dict[str, ob
         name: value
         for name, value in sorted(env.items())
         if name == "LD_PRELOAD"
+        or name == "PYTHONPATH"
         or name == "LD_LIBRARY_PATH"
         or name.startswith(
             ("HSA_", "HIP_", "ROCR_", "ROCM_", "TRITON_", "TORCH_", "TOKENSPEED_")

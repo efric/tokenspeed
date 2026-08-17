@@ -55,6 +55,7 @@ _ROUTER = gl.constexpr(896)
 _LATENT = gl.constexpr(3584)
 _SHARED = gl.constexpr(768)
 _PHASE0_BLOCK_K = gl.constexpr(1024)
+_FINALIZER_PROGRAMS = 224
 
 
 @gluon.jit
@@ -92,7 +93,7 @@ def _wait_subgroup_vmem_ack():
 
 @gluon.jit
 def _poll_exact_generation(flag, generation, TIMEOUT_NS: gl.constexpr):
-    """Acquire one exact system generation for subgroup-zero Iris payload."""
+    """Acquire one exact system generation for an Iris workgroup."""
 
     matched = gl.atomic_poll(
         flag,
@@ -108,11 +109,10 @@ def _poll_exact_generation(flag, generation, TIMEOUT_NS: gl.constexpr):
         # ready/completion planes ensure this cannot be a future generation.
         observed = gl.load(flag, cache_modifier=".cv")
     # Scalar atomic_poll elects lane 0 of subgroup 0 and retains its compiler-
-    # owned acquire invalidation plus workgroup rendezvous.  Every dependent
-    # Iris payload load is also owned entirely by subgroup 0; completion protects
-    # reuse by a later dispatch.  Fresh-binary, skewed world-eight
-    # stress qualified this exact gfx950 path for 4096 generations without a
-    # second source-owned VMEM acknowledgment or workgroup barrier.
+    # owned acquire invalidation plus workgroup rendezvous. Callers that transfer
+    # payload ownership to sibling subgroups must additionally acknowledge that
+    # acquire in every subgroup before the dependent loads. Completion protects
+    # reuse by a later dispatch.
     return matched, observed
 
 
@@ -640,6 +640,128 @@ def _sigmoid_bias_top16(
 
 
 @gluon.jit
+def _sigmoid_bias_top16_hierarchical(
+    pid,
+    router_logits,
+    correction_bias,
+    topk_ids,
+    topk_weights,
+):
+    """Prototype an exact two-level subgroup-local K3 top-16 route."""
+
+    if pid == _PROGRAMS - 2:
+        neg: gl.constexpr = float("-inf")
+        partition_layout: gl.constexpr = gl.BlockedLayout(
+            [1, 2],
+            [1, 64],
+            [8, 1],
+            [1, 0],
+        )
+        partition = gl.expand_dims(
+            gl.arange(0, 8, layout=gl.SliceLayout(1, partition_layout)),
+            1,
+        )
+        partition_col = gl.expand_dims(
+            gl.arange(0, 128, layout=gl.SliceLayout(0, partition_layout)),
+            0,
+        )
+        expert = partition * 128 + partition_col
+        mask = expert < _ROUTER
+        logits = gl.load(
+            router_logits + expert,
+            mask=mask,
+            other=neg,
+            cache_modifier=".cv",
+        ).to(gl.float32)
+        scores = gl.fdiv(1.0, 1.0 + gl.exp(-logits))
+        bias = gl.load(
+            correction_bias + expert,
+            mask=mask,
+            other=0.0,
+        ).to(gl.float32)
+        choice = gl.where(mask, scores + bias, neg)
+
+        sign = gl.full([8, 128], 0x80000000, gl.uint32, partition_layout)
+        all_bits = gl.full([8, 128], 0xFFFFFFFF, gl.uint32, partition_layout)
+        zeros64 = gl.zeros([8, 128], gl.uint64, partition_layout)
+        raw = choice.to(gl.uint32, bitcast=True)
+        value_key = raw ^ gl.where((raw & sign) != 0, all_bits, sign)
+        index_key = (1024 - expert).to(gl.uint32)
+        packed_key = (value_key.to(gl.uint64) << 16) | index_key.to(gl.uint64)
+
+        candidate_slot = gl.expand_dims(
+            gl.arange(0, 16, layout=gl.SliceLayout(0, partition_layout)),
+            0,
+        )
+        candidates = gl.zeros([8, 16], gl.uint64, partition_layout)
+        live = mask
+        for slot in range(0, 16):
+            packed = gl.where(live, packed_key, zeros64)
+            best = gl.max(packed, axis=1, keep_dims=True)
+            candidates = gl.where(candidate_slot == slot, best, candidates)
+            live &= packed_key != best
+
+        # Each subgroup contributes sixteen packed keys. Flattening preserves
+        # the subgroup-contiguous ownership, and the gather repeats the 128-key
+        # union once per subgroup before the second local selection level.
+        flat_candidates = gl.reshape(candidates, [128])
+        shared_layout: gl.constexpr = gl.SwizzledSharedLayout(
+            1,
+            1,
+            1,
+            order=[0],
+        )
+        candidate_smem = gl.allocate_shared_memory(
+            gl.uint64,
+            [128],
+            shared_layout,
+            value=flat_candidates,
+        )
+        gl.barrier()
+
+        repeated_layout: gl.constexpr = gl.BlockedLayout([2], [64], [8], [0])
+        repeated_col = gl.arange(0, 1024, layout=repeated_layout)
+        union = candidate_smem.gather(repeated_col & 127, axis=0)
+        union = gl.reshape(union, [8, 128])
+        union = gl.convert_layout(union, partition_layout)
+
+        indices = gl.zeros([8, 16], gl.int32, partition_layout)
+        live = union != 0
+        for slot in range(0, 16):
+            packed = gl.where(live, union, zeros64)
+            best = gl.max(packed, axis=1, keep_dims=True)
+            selected_id = (1024 - (best & 0xFFFF).to(gl.int32)).to(gl.int32)
+            indices = gl.where(candidate_slot == slot, selected_id, indices)
+            live &= union != best
+
+        # All subgroups compute identical final rows; subgroup zero is the sole
+        # VMEM publisher before the existing compact normalization path.
+        gl.store(
+            topk_ids + candidate_slot + partition * 0,
+            indices,
+            mask=partition == 0,
+            cache_modifier=".wt",
+        )
+        _drain_subgroup_vmem_before_barrier()
+        gl.barrier()
+
+        compact_layout: gl.constexpr = gl.BlockedLayout([1], [64], [8], [0])
+        compact_offs = gl.arange(0, 16, layout=compact_layout)
+        compact_ids = gl.load(topk_ids + compact_offs, cache_modifier=".cv")
+        selected_logits = gl.load(
+            router_logits + compact_ids,
+            cache_modifier=".cv",
+        ).to(gl.float32)
+        values = gl.fdiv(1.0, 1.0 + gl.exp(-selected_logits))
+        denominator = gl.sum(values, axis=0)
+        denominator = gl.where(denominator != 0.0, denominator, 1.0)
+        values = gl.fdiv(values, denominator)
+        gl.store(topk_weights + compact_offs, values, cache_modifier=".wt")
+        _drain_subgroup_vmem_before_barrier()
+        gl.barrier()
+
+
+@gluon.jit
 def _publish_route_plan(
     pid,
     generation,
@@ -782,13 +904,15 @@ def _shared_down_produce(
                     other=0.0,
                     cache=".cv",
                 ).to(gl.float32)
-                weight = gl.load(
-                    shared_down_weight
-                    + output_col[:, :, None].to(gl.int64) * _SHARED
-                    + offs_k[None, None, :].to(gl.int64),
+                weight_offsets = (
+                    output_col[:, :, None].to(gl.int64) * _SHARED
+                    + offs_k[None, None, :].to(gl.int64)
+                ).to(gl.int32)
+                weight = gl.amd.cdna4.buffer_load(
+                    shared_down_weight,
+                    weight_offsets,
                     mask=k_mask[None, None, :],
                     other=0.0,
-                    cache_modifier=".cs",
                 )
                 activation = gl.convert_layout(activation[None, None, :], layout)
                 acc += gl.sum(weight.to(gl.float32) * activation, axis=2)
@@ -1594,7 +1718,6 @@ def _iris_communication_tile(
 
         layout: gl.constexpr = gl.BlockedLayout([1], [64], [8], [0])
         lane = gl.arange(0, 512, layout=layout)
-        consumer_lane = lane < 64
         producer_u64 = tl.cast(symmetric_producer, gl.pointer_type(gl.uint64))
 
         local_ready_flag = iris_epoch_flags + comm_index * _WORLD_SIZE + RANK
@@ -1638,6 +1761,11 @@ def _iris_communication_tile(
             RANK,
             TIMEOUT_NS,
         )
+        # Unlike the qualified subgroup-zero lane, all eight subgroups consume
+        # payload below. Complete the scalar acquire's ownership transfer in
+        # every subgroup before any sibling issues a coherent payload load.
+        _wait_subgroup_vmem_ack()
+        gl.barrier()
         if not local_ready:
             return
 
@@ -1668,58 +1796,63 @@ def _iris_communication_tile(
                     RANK,
                     TIMEOUT_NS,
                 )
+                _wait_subgroup_vmem_ack()
+                gl.barrier()
                 peers_ready &= peer_ready
         if not peers_ready:
             return
 
         reduced_u64 = tl.cast(symmetric_reduced, gl.pointer_type(gl.uint64))
         producer_offset = tl.cast(symmetric_producer, gl.uint64) - local_heap
-        # Keep all 128 packed words in the scalar acquire's subgroup.  Two
-        # words per lane reproduce the standalone-Iris communication shape and
-        # avoid relying on cache invalidation propagating to sibling subgroups.
-        for word_group in gl.static_range(0, 2):
-            word = lane + word_group * 64
-            packed_offset = comm_index * 128 + word
-            local_packed = gl.amd.cdna4.buffer_load(
-                producer_u64,
-                packed_offset.to(gl.int32),
-                mask=consumer_lane,
-                other=0,
-                cache=".cv",
-            )
-            acc0, acc1, acc2, acc3 = _unpack_bf16x4(local_packed)
-            for peer in gl.static_range(0, _WORLD_SIZE):
-                if peer != RANK:
-                    peer_heap = _group_heap_base(
-                        peer,
-                        heap_bases,
-                        group_global_ranks,
-                    )
-                    peer_producer = tl.cast(
-                        peer_heap + producer_offset,
-                        gl.pointer_type(gl.uint64),
-                    )
-                    peer_packed = gl.amd.cdna4.buffer_load(
-                        peer_producer,
-                        packed_offset.to(gl.int32),
-                        mask=consumer_lane,
-                        other=0,
-                        cache=".cv",
-                    )
-                    peer0, peer1, peer2, peer3 = _unpack_bf16x4(peer_packed)
-                    acc0 += peer0
-                    acc1 += peer1
-                    acc2 += peer2
-                    acc3 += peer3
-            gl.amd.cdna4.buffer_store(
-                _pack_bf16x4(acc0, acc1, acc2, acc3),
-                reduced_u64,
-                packed_offset.to(gl.int32),
-                mask=consumer_lane,
-                cache=".wt",
-            )
+        # Divide the 128 packed words evenly across all eight subgroups. Every
+        # word retains the canonical Iris recurrence: local BF16 seed, then
+        # peer ranks in increasing order (skipping local), with four independent
+        # FP32 sums.
+        subgroup = lane // 64
+        subgroup_lane = lane % 64
+        consumer_lane = subgroup_lane < 16
+        word = subgroup * 16 + subgroup_lane
+        packed_offset = comm_index * 128 + word
+        local_packed = gl.amd.cdna4.buffer_load(
+            producer_u64,
+            packed_offset.to(gl.int32),
+            mask=consumer_lane,
+            other=0,
+            cache=".cv",
+        )
+        acc0, acc1, acc2, acc3 = _unpack_bf16x4(local_packed)
+        for peer in gl.static_range(0, _WORLD_SIZE):
+            if peer != RANK:
+                peer_heap = _group_heap_base(
+                    peer,
+                    heap_bases,
+                    group_global_ranks,
+                )
+                peer_producer = tl.cast(
+                    peer_heap + producer_offset,
+                    gl.pointer_type(gl.uint64),
+                )
+                peer_packed = gl.amd.cdna4.buffer_load(
+                    peer_producer,
+                    packed_offset.to(gl.int32),
+                    mask=consumer_lane,
+                    other=0,
+                    cache=".cv",
+                )
+                peer0, peer1, peer2, peer3 = _unpack_bf16x4(peer_packed)
+                acc0 += peer0
+                acc1 += peer1
+                acc2 += peer2
+                acc3 += peer3
+        gl.amd.cdna4.buffer_store(
+            _pack_bf16x4(acc0, acc1, acc2, acc3),
+            reduced_u64,
+            packed_offset.to(gl.int32),
+            mask=consumer_lane,
+            cache=".wt",
+        )
 
-        # Publish completion only after subgroup 0 has drained all 128 packed
+        # Publish completion only after every subgroup has drained its packed
         # write-through stores in the local reduced tile.
         _drain_subgroup_vmem_before_barrier()
         gl.barrier()
@@ -1876,7 +2009,7 @@ def _final_rmsnorm_linear_add(
 
 
 @gluon.jit
-def _kimi_k3_megamoe_kernel(
+def _kimi_k3_megamoe_core_kernel(
     hidden_states,
     prefix_sum,
     layer_output,
@@ -2020,7 +2153,7 @@ def _kimi_k3_megamoe_kernel(
     )
     if not topology_ready:
         return
-    _sigmoid_bias_top16(
+    _sigmoid_bias_top16_hierarchical(
         pid,
         router_logits,
         correction_bias,
@@ -2134,32 +2267,32 @@ def _kimi_k3_megamoe_kernel(
         RANK,
         TIMEOUT_NS,
     )
-    if pid < 224:
-        comm_ready = _poll_local_or_poison(
-            comm_gate,
-            generation,
-            generation,
-            fatal_epoch,
-            heap_bases,
-            group_global_ranks,
-            fail_diagnostics,
-            pid,
-            11,
-            xcc,
-            RANK,
-            TIMEOUT_NS,
-        )
-        if not comm_ready:
-            return
-        _final_rmsnorm_linear_add(
-            pid,
-            prefix_sum,
-            routed_norm_weight,
-            routed_up_weight,
-            symmetric_reduced,
-            layer_output,
-            rms_eps,
-        )
+
+
+@gluon.jit
+def _kimi_k3_megamoe_finalizer_kernel(
+    prefix_sum,
+    layer_output,
+    routed_norm_weight,
+    routed_up_weight,
+    symmetric_reduced,
+    fatal_epoch,
+    rms_eps,
+):
+    """Apply the B1 routed final matrix after the persistent core completes."""
+
+    if not _fatal_epoch_is_clear(fatal_epoch):
+        return
+    pid = gl.program_id(0)
+    _final_rmsnorm_linear_add(
+        pid,
+        prefix_sum,
+        routed_norm_weight,
+        routed_up_weight,
+        symmetric_reduced,
+        layer_output,
+        rms_eps,
+    )
 
 
 _WORKSPACE_NAMES = (
@@ -2233,6 +2366,9 @@ class PreparedKimiK3MegaMoEKernel:
     compiled: object
     runner: Callable[..., None]
     admission: object
+    finalizer_compiled: object
+    finalizer_runner: Callable[..., None]
+    finalizer_admission: object
     device: torch.device
     expert_start: int
     group_rank: int
@@ -2481,6 +2617,23 @@ def _raw_arguments(
     )
 
 
+_RAW_TENSOR_INDEX = {
+    name: index for index, name in enumerate(KIMI_K3_MEGAMOE_RAW_TENSOR_NAMES)
+}
+_FINALIZER_TENSOR_NAMES = (
+    "prefix_sum",
+    "layer_output",
+    "routed_norm_weight",
+    "routed_up_weight",
+    "symmetric_reduced",
+    "fatal_epoch",
+)
+
+
+def _finalizer_arguments(args: tuple[object, ...]) -> tuple[object, ...]:
+    return tuple(args[_RAW_TENSOR_INDEX[name]] for name in _FINALIZER_TENSOR_NAMES)
+
+
 def compile_kimi_k3_megamoe_gfx950(*args, **kwargs):
     """Warm up the exact specialization without dispatching it.
 
@@ -2514,7 +2667,7 @@ def compile_kimi_k3_megamoe_gfx950(*args, **kwargs):
         rms_eps=rms_eps,
     )
     preflight_kimi_k3_megamoe_runtime()
-    return _kimi_k3_megamoe_kernel.warmup(
+    return _kimi_k3_megamoe_core_kernel.warmup(
         *args,
         beta,
         linear_beta,
@@ -2526,6 +2679,46 @@ def compile_kimi_k3_megamoe_gfx950(*args, **kwargs):
         num_warps=8,
         num_stages=1,
         waves_per_eu=2,
+        launch_cooperative_grid=False,
+    )
+
+
+def compile_kimi_k3_megamoe_finalizer_gfx950(*args, **kwargs):
+    """Warm up the exact B1 finalizer specialization without dispatching it."""
+
+    beta = float(kwargs.pop("beta", 4.0))
+    linear_beta = float(kwargs.pop("linear_beta", 25.0))
+    rms_eps = float(kwargs.pop("rms_eps", 1.0e-5))
+    expert_start = int(kwargs.pop("expert_start"))
+    group_rank = int(kwargs.pop("group_rank"))
+    timeout_ns = int(kwargs.pop("timeout_ns"))
+    if kwargs:
+        raise TypeError(f"unexpected MegaMoE keyword arguments: {tuple(kwargs)}")
+    if len(args) != len(KIMI_K3_MEGAMOE_RAW_TENSOR_NAMES):
+        raise ValueError(
+            "Kimi K3 MegaMoE raw ABI requires "
+            f"{len(KIMI_K3_MEGAMOE_RAW_TENSOR_NAMES)} tensors, got {len(args)}"
+        )
+    workspace_end = 14 + len(_WORKSPACE_NAMES)
+    _validate_raw_tensors(
+        args[:14],
+        args[14:workspace_end],
+        args[workspace_end:],
+        expert_start=expert_start,
+        group_rank=group_rank,
+        timeout_ns=timeout_ns,
+        beta=beta,
+        linear_beta=linear_beta,
+        rms_eps=rms_eps,
+    )
+    preflight_kimi_k3_megamoe_runtime()
+    return _kimi_k3_megamoe_finalizer_kernel.warmup(
+        *_finalizer_arguments(args),
+        rms_eps,
+        grid=(_FINALIZER_PROGRAMS,),
+        num_warps=8,
+        num_stages=1,
+        waves_per_eu=0,
         launch_cooperative_grid=False,
     )
 
@@ -2545,19 +2738,32 @@ def prepare_kimi_k3_megamoe_gfx950(*args, **kwargs) -> PreparedKimiK3MegaMoEKern
     group_rank = int(kwargs["group_rank"])
     timeout_ns = int(kwargs["timeout_ns"])
     compiled = compile_kimi_k3_megamoe_gfx950(*args, **kwargs)
+    finalizer_compiled = compile_kimi_k3_megamoe_finalizer_gfx950(*args, **kwargs)
     report = admit_kimi_k3_megamoe_compiled_kernel(
         compiled,
         group_rank=group_rank,
         expert_start=expert_start,
         timeout_ns=timeout_ns,
+        prototype_role="core",
+    )
+    finalizer_report = admit_kimi_k3_megamoe_compiled_kernel(
+        finalizer_compiled,
+        group_rank=group_rank,
+        expert_start=expert_start,
+        timeout_ns=timeout_ns,
+        prototype_role="finalizer",
     )
     # Materialize the runner now. CompiledKernel.__getitem__ initializes the
     # module handle and returns a closure over this exact loaded specialization.
     runner = compiled[(PROGRAMS, 1, 1)]
+    finalizer_runner = finalizer_compiled[(_FINALIZER_PROGRAMS, 1, 1)]
     return PreparedKimiK3MegaMoEKernel(
         compiled=compiled,
         runner=runner,
         admission=report,
+        finalizer_compiled=finalizer_compiled,
+        finalizer_runner=finalizer_runner,
+        finalizer_admission=finalizer_report,
         device=args[0].device,
         expert_start=expert_start,
         group_rank=group_rank,
@@ -2595,6 +2801,11 @@ def launch_prepared_kimi_k3_megamoe_gfx950(
         prepared.rms_eps,
         stream=stream,
     )
+    prepared.finalizer_runner(
+        *_finalizer_arguments(args),
+        prepared.rms_eps,
+        stream=stream,
+    )
 
 
 def launch_kimi_k3_megamoe_gfx950(
@@ -2619,6 +2830,7 @@ def launch_kimi_k3_megamoe_gfx950(
 __all__ = [
     "KIMI_K3_MEGAMOE_RAW_TENSOR_NAMES",
     "PreparedKimiK3MegaMoEKernel",
+    "compile_kimi_k3_megamoe_finalizer_gfx950",
     "compile_kimi_k3_megamoe_gfx950",
     "launch_kimi_k3_megamoe_gfx950",
     "launch_prepared_kimi_k3_megamoe_gfx950",

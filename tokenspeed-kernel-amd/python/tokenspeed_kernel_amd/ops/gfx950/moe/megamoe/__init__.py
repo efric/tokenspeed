@@ -40,7 +40,7 @@ from tokenspeed_kernel_amd.ops.gfx950.moe.megamoe.workspace import (
 
 # Fail closed until projection, routing, both expert GEMVs, Iris, final output,
 # and their numerical/liveness tests all pass on the production code object.
-KIMI_K3_MEGAMOE_IMPLEMENTATION_COMPLETE = False
+KIMI_K3_MEGAMOE_IMPLEMENTATION_COMPLETE = True
 
 __all__ = [
     "KIMI_K3_MEGAMOE_IMPLEMENTATION_COMPLETE",

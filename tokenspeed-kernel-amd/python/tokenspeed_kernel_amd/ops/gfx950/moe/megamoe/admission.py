@@ -394,9 +394,13 @@ def admit_kimi_k3_megamoe_compiled_kernel(
     group_rank: int,
     expert_start: int,
     timeout_ns: int,
+    prototype_role: str | None = None,
 ) -> MegaMoECodeAdmission:
     """Validate one exact loaded rank specialization before its first launch."""
 
+    if prototype_role not in (None, "core", "finalizer"):
+        raise ValueError(f"unknown MegaMoE prototype role {prototype_role!r}")
+    prototype = prototype_role is not None
     if timeout_ns != QUALIFIED_TIMEOUT_NS:
         raise RuntimeError(
             "Kimi K3 MegaMoE rejects unqualified timeout_ns="
@@ -449,8 +453,9 @@ def admit_kimi_k3_megamoe_compiled_kernel(
         else True
     )
     code_object = _code_object_bytes(compiled)
+    programs = 224 if prototype_role == "finalizer" else PROGRAMS
     report = MegaMoECodeAdmission(
-        programs=PROGRAMS,
+        programs=programs,
         subgroups=SUBGROUPS,
         threads=WORKGROUP_THREADS,
         shared=shared,
@@ -478,13 +483,17 @@ def admit_kimi_k3_megamoe_compiled_kernel(
         timeout_ns=timeout_ns,
     )
     failures: list[str] = []
-    if shared < LDS_BYTES:
+    minimum_shared = 0 if prototype_role == "finalizer" else LDS_BYTES
+    expected_waves_per_eu = 0 if prototype_role == "finalizer" else 2
+    if shared < minimum_shared:
         failures.append(f"dynamic LDS {shared} < {LDS_BYTES}")
     if cooperative:
         failures.append("compiled metadata is cooperative; ordinary launch is required")
-    if waves_per_eu != 2:
-        failures.append(f"waves_per_eu is {waves_per_eu}, expected 2")
-    if occupancy != 1:
+    if waves_per_eu != expected_waves_per_eu:
+        failures.append(
+            f"waves_per_eu is {waves_per_eu}, expected {expected_waves_per_eu}"
+        )
+    if prototype_role != "finalizer" and occupancy != 1:
         failures.append(f"loaded occupancy is {occupancy}, expected 1")
     if n_spills != 0:
         failures.append(f"loaded kernel reports {n_spills} spills")
@@ -494,17 +503,17 @@ def admit_kimi_k3_megamoe_compiled_kernel(
         failures.append("loaded AMDGCN lacks required resource metadata")
     if vgpr_spills != 0:
         failures.append(f"AMDGPU metadata reports {vgpr_spills} VGPR spills")
-    if sgpr_count != _QUALIFIED_SGPR_COUNT:
+    if not prototype and sgpr_count != _QUALIFIED_SGPR_COUNT:
         failures.append(
             f"AMDGPU metadata reports {sgpr_count} SGPRs, "
             f"qualified value is {_QUALIFIED_SGPR_COUNT}"
         )
-    if vgpr_count != _QUALIFIED_VGPR_COUNT:
+    if not prototype and vgpr_count != _QUALIFIED_VGPR_COUNT:
         failures.append(
             f"AMDGPU metadata reports {vgpr_count} VGPRs, "
             f"qualified value is {_QUALIFIED_VGPR_COUNT}"
         )
-    if sgpr_spills != expected_lane_spills:
+    if not prototype and sgpr_spills != expected_lane_spills:
         failures.append(
             f"AMDGPU metadata reports {sgpr_spills} SGPR lane spills, "
             f"qualified value is {expected_lane_spills}"
@@ -519,14 +528,14 @@ def admit_kimi_k3_megamoe_compiled_kernel(
         failures.append("loaded AMDGCN contains scratch load/store instructions")
     if not code_object:
         failures.append("loaded kernel did not expose code-object bytes")
-    elif report.code_object_sha256 != expected_hash:
+    elif not prototype and report.code_object_sha256 != expected_hash:
         failures.append(
             "loaded code-object SHA256 is "
             f"{report.code_object_sha256}, expected "
             f"{expected_hash} for group_rank={group_rank}, "
             f"expert_start={expert_start}"
         )
-    if resident_capacity < PROGRAMS:
+    if prototype_role != "finalizer" and resident_capacity < PROGRAMS:
         failures.append(
             "ordinary persistent grid exceeds the loaded residency envelope: "
             f"{resident_capacity} resident slots < {PROGRAMS} programs"

@@ -177,8 +177,44 @@ def test_benchmark_env_forces_fatal_epoch_observation(
     monkeypatch.setenv("PYTHONPATH", "/tmp/wrong-checkout")
     monkeypatch.setenv("TOKENSPEED_K3_MEGAMOE_FATAL_EPOCH_D2H", "0")
     env = benchmark._benchmark_env()
-    assert "PYTHONPATH" not in env
+    assert env["PYTHONPATH"].split(benchmark.os.pathsep) == [
+        str(path.resolve()) for path in benchmark.RUNTIME_IMPORT_ROOTS
+    ]
     assert env["TOKENSPEED_K3_MEGAMOE_FATAL_EPOCH_D2H"] == "1"
+
+
+def test_import_contract_rejects_another_checkout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = {
+        "tokenspeed": str(benchmark.REPO_ROOT / "python/tokenspeed/__init__.py"),
+        "tokenspeed_kernel": str(
+            benchmark.REPO_ROOT
+            / "tokenspeed-kernel/python/tokenspeed_kernel/__init__.py"
+        ),
+        "tokenspeed_kernel_amd": str(
+            benchmark.REPO_ROOT
+            / "tokenspeed-kernel-amd/python/tokenspeed_kernel_amd/__init__.py"
+        ),
+        "tokenspeed_scheduler": str(
+            benchmark.PRODUCTION_REPO_ROOT
+            / "tokenspeed-scheduler/python/tokenspeed_scheduler/__init__.py"
+        ),
+        "tokenspeed_scheduler.tokenspeed_scheduler_ext": str(
+            benchmark.SCHEDULER_EXTENSION
+        ),
+    }
+    monkeypatch.setattr(
+        benchmark,
+        "_run_checked",
+        lambda *args, **kwargs: type("Result", (), {"stdout": ""})(),
+    )
+    monkeypatch.setattr(benchmark, "_json_sentinel", lambda *args: paths)
+    assert benchmark._probe_import_contract({}) == paths
+
+    paths["tokenspeed_kernel_amd"] = "/tmp/other/tokenspeed_kernel_amd/__init__.py"
+    with pytest.raises(benchmark.BenchmarkError, match="outside the benchmark worktree"):
+        benchmark._probe_import_contract({})
 
 
 def _cli_contract_report(*, prefix_caching_arm: str | None = None) -> dict:
