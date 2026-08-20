@@ -249,4 +249,4 @@ features directly:
 - `--mla-chunk-multiplier`
 - `--disaggregation-*`
 - `--comm-fusion-max-num-tokens`
-- `--enable-allreduce-fusion`
+- `--allreduce-fusion={auto,on,off}`
