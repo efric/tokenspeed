@@ -49,7 +49,10 @@ from tokenspeed.runtime.execution.forward_batch_info import (
     ForwardMode,
 )
 from tokenspeed.runtime.execution.input_buffer import InputBuffers
-from tokenspeed.runtime.execution.model_runner import ModelRunner
+from tokenspeed.runtime.execution.model_runner import (
+    ModelRunner,
+    validate_kimi_k3_megamoe_fatal_epoch_slots,
+)
 from tokenspeed.runtime.execution.multimodal_runtime import MultimodalRuntime
 from tokenspeed.runtime.execution.nan_guard import NanGuard
 from tokenspeed.runtime.execution.prefill_graph import PrefillGraph
@@ -304,6 +307,14 @@ class ModelExecutor:
         self.device = config.device
         self.config = config
         self.model_runner = model_runner
+        if getattr(model_runner, "_kimi_k3_megamoe_fatal_epoch_d2h_enabled", False):
+            fatal_slots = getattr(
+                model_runner, "_kimi_k3_megamoe_fatal_epoch_cpu_slots", None
+            )
+            validate_kimi_k3_megamoe_fatal_epoch_slots(
+                overlap_schedule_depth=config.overlap_schedule_depth,
+                slot_count=len(fatal_slots or ()),
+            )
         self.sampling_backend = sampling_backend
         self.attn_backend = attn_backend
         self.token_to_kv_pool = token_to_kv_pool
@@ -495,6 +506,10 @@ class ModelExecutor:
         self._active_multimodal_context = None
         self._active_positions_override = None
 
+        # MegaMoE's 92 layer plans share exact-equality gates, scratch, and one
+        # Iris lane. Use this same stream for graph warmup/capture, eager work,
+        # and replay so the public plan owner can reject every other stream.
+        self.execution_stream = torch.cuda.Stream()
         self.forward_step = CudaGraphWrapper(
             forward_func=self._forward_step,
             attn_backend=attn_backend,
@@ -508,11 +523,13 @@ class ModelExecutor:
             eager_grammar_buffers=self.eager_grammar_buffers,
             sampling_backend=self.sampling_backend,
             runtime_states=self.runtime_states,
+            stream=self.execution_stream,
         )
         # Eager warmup can be DP-asymmetric; prewarm RSAG under uniform dummy inputs.
         if config.enforce_eager:
             logger.info("Prewarming Triton RSAG communication states")
-            self.forward_step.prewarm_comm_states(batch_sizes=(1,))
+            with torch.cuda.stream(self.execution_stream):
+                self.forward_step.prewarm_comm_states(batch_sizes=(1,))
             logger.info("Finished prewarming Triton RSAG communication states")
 
         # Breakable prefill (extend) CUDA graphs, the extend-mode analogue of
@@ -543,7 +560,8 @@ class ModelExecutor:
             self.model_runner, "encoder_graph_wrappers", {}
         )
 
-        self.execution_stream = torch.cuda.Stream()
+        if self.forward_step.stream is not self.execution_stream:
+            raise RuntimeError("model graph capture replaced the execution stream")
         self.log_step = 0
         self._seen_prefill_ids: set[str] = set()
         self._prev_decode_bs: int = 0
@@ -594,20 +612,22 @@ class ModelExecutor:
         ib = self.input_buffers
         tic = time.time()
         set_autotune_process_group(cpu_group)
-        with autotune(), maybe_inference_mode():
-            ctx = self.prefill_graph.make_dummy_batch(num_tokens, self.forward_step)
-            positions = (
-                ib.mrope_positions_buf[:, :num_tokens]
-                if self.config.model_is_mrope
-                else ib.positions_buf[:num_tokens]
-            )
-            with active_forward(ctx):
-                self.model_runner.forward(
-                    ctx=ctx,
-                    input_ids=ib.input_ids_buf[:num_tokens],
-                    positions=positions,
-                    out_cache_loc=ib.out_cache_loc_buf[:num_tokens],
+        self.execution_stream.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(self.execution_stream):
+            with autotune(), maybe_inference_mode():
+                ctx = self.prefill_graph.make_dummy_batch(num_tokens, self.forward_step)
+                positions = (
+                    ib.mrope_positions_buf[:, :num_tokens]
+                    if self.config.model_is_mrope
+                    else ib.positions_buf[:num_tokens]
                 )
+                with active_forward(ctx):
+                    self.model_runner.forward(
+                        ctx=ctx,
+                        input_ids=ib.input_ids_buf[:num_tokens],
+                        positions=positions,
+                        out_cache_loc=ib.out_cache_loc_buf[:num_tokens],
+                    )
         set_autotune_process_group(None)
         torch.cuda.synchronize()
         dist.barrier()
@@ -1091,6 +1111,24 @@ class ModelExecutor:
         ranks do. The MoE all-to-all is a collective that requires ALL
         ranks to participate.
         """
+        current_stream = torch.cuda.current_stream()
+        current_stream.wait_stream(self.execution_stream)
+        self.execution_stream.wait_stream(current_stream)
+        with torch.cuda.stream(self.execution_stream):
+            return self._execute_idle_forward_on_execution_stream(
+                global_num_tokens,
+                global_bs,
+                all_decode_or_idle,
+            )
+
+    def _execute_idle_forward_on_execution_stream(
+        self,
+        global_num_tokens: list[int],
+        global_bs: list[int],
+        all_decode_or_idle: bool,
+    ):
+        """Run the idle eager path or graph replay on the owned stream."""
+
         graph_forward_mode = ForwardMode.DECODE
         ctx = ForwardContext(
             attn_backend=self.attn_backend,
@@ -1570,6 +1608,21 @@ class ModelExecutor:
 
                 output_nan_flags = self.nan_guard.flags_cpu
 
+                # The scalar copy is enqueued on this same execution stream
+                # after eager/graph completion and before copy_event. The
+                # two-slot host mirror lets the overlap loop enqueue the next
+                # replay before sync() checks this result. No token is committed
+                # before the check, and sticky fatal state makes later MegaMoE
+                # nodes on the serialized execution stream self-abort.
+                enqueue_fatal_epoch = getattr(
+                    self.model_runner,
+                    "enqueue_kimi_k3_megamoe_fatal_epoch_d2h",
+                    None,
+                )
+                megamoe_fatal_epoch = (
+                    enqueue_fatal_epoch() if callable(enqueue_fatal_epoch) else None
+                )
+
                 copy_event = torch.cuda.Event()
                 copy_event.record()
                 if timing_enabled:
@@ -1611,6 +1664,7 @@ class ModelExecutor:
             next_input_ids=next_input_ids,
             output_nan_flags=output_nan_flags,
             spec_candidate_tokens=spec_candidate_tokens,
+            kimi_k3_megamoe_fatal_epoch=megamoe_fatal_epoch,
         )
 
     def write_remote_spec_candidate_ids(

@@ -20,8 +20,13 @@
 
 """Triton all-reduce backend for latency-sensitive small AMD tensors."""
 
+import math
+
 import torch
 import torch.distributed as dist
+from tokenspeed_kernel.ops.communication.triton import (
+    acquire_producer_direct_lane as kernel_acquire_producer_direct_lane,
+)
 from tokenspeed_kernel.ops.communication.triton import (
     acquire_symm_outputs,
     all_reduce,
@@ -124,6 +129,133 @@ class TritonAllReduceBackend(CommBackend):
         # Do not let one rank silently select a different collective protocol.
         state = self._get_or_create(group)
         return acquire_symm_outputs(state, shapes, like.dtype)
+
+    @staticmethod
+    def _bounded_status(local_status: int, local_reason: str) -> tuple[int, str]:
+        try:
+            status = int(local_status)
+        except Exception:
+            return 9001, "local status is not an integer"
+        try:
+            reason = str(local_reason).replace("\x00", "")[:512]
+        except Exception:
+            return 9004, "local reason could not be serialized"
+        return status, reason
+
+    def consensus_producer_direct_lane_status(
+        self,
+        group: Group,
+        *,
+        stage: str,
+        local_status: int = 0,
+        local_reason: str = "",
+    ) -> None:
+        """Gather a bounded status on Gloo before any collective GPU stage."""
+
+        status, reason = self._bounded_status(local_status, local_reason)
+        try:
+            stage_name = str(stage).replace("\x00", "")[:64]
+        except Exception:
+            stage_name = "invalid_stage"
+            if status == 0:
+                status, reason = 9005, "stage name could not be serialized"
+        if not stage_name and status == 0:
+            status, reason = 9002, "producer-direct stage name is empty"
+        payload = (stage_name, status, reason)
+        control_group = pg_manager.get_process_group("gloo", group)
+        gathered = [None] * len(group)
+        dist.all_gather_object(gathered, payload, group=control_group)
+
+        gathered_stages = {item[0] for item in gathered}
+        failures = [
+            (global_rank, item[1], item[2])
+            for global_rank, item in zip(group, gathered)
+            if item[1] != 0
+        ]
+        if len(gathered_stages) != 1:
+            failures = [
+                (global_rank, 9003, f"stage mismatch: {item[0]!r}")
+                for global_rank, item in zip(group, gathered)
+            ]
+        if failures:
+            details = "; ".join(
+                f"rank {rank}: status {failure_status}: {failure_reason}"
+                for rank, failure_status, failure_reason in failures
+            )
+            agreed_stage = sorted(gathered_stages)[0] if gathered_stages else stage_name
+            raise RuntimeError(
+                f"producer-direct {agreed_stage} consensus failed: {details}"
+            )
+
+    def _local_producer_direct_admission(
+        self,
+        shapes: tuple[tuple[int, ...], ...],
+        like: torch.Tensor,
+        group: Group,
+    ) -> tuple[int, str]:
+        try:
+            numels = tuple(math.prod(shape) for shape in shapes)
+            element_bytes = like.dtype.itemsize
+            total_numel = sum(numels)
+            if not current_platform().is_cdna4:
+                return 1001, "producer-direct lane requires CDNA4"
+            if not like.is_cuda:
+                return 1002, "producer-direct lane requires a CUDA/ROCm tensor"
+            if len(group) not in (2, 4, 8) or len(set(group)) != len(group):
+                return 1003, f"unsupported or duplicate process group: {group}"
+            if dist.get_rank() not in group:
+                return 1004, f"current rank is not in process group: {group}"
+            if like.dtype not in (torch.bfloat16, torch.float16, torch.float32):
+                return 1005, f"unsupported producer-direct dtype: {like.dtype}"
+            if not numels or any(numel <= 0 for numel in numels):
+                return 1006, f"invalid producer-direct shapes: {shapes}"
+            if 8 % element_bytes or total_numel % (8 // element_bytes):
+                return 1007, "producer-direct size is not packed-word aligned"
+            if total_numel * element_bytes > self._producer_direct_max_bytes:
+                return 1008, "producer-direct request exceeds lane capacity"
+        except Exception as exc:
+            return 1099, f"producer-direct admission raised {type(exc).__name__}: {exc}"
+        return 0, ""
+
+    def acquire_producer_direct_lane(
+        self,
+        shapes: tuple[tuple[int, ...], ...],
+        like: torch.Tensor,
+        group: Group,
+        *,
+        local_status: int = 0,
+        local_reason: str = "",
+    ) -> object:
+        """Collectively borrow the exact cached Iris producer-direct owner."""
+
+        status, reason = self._bounded_status(local_status, local_reason)
+        if status == 0:
+            status, reason = self._local_producer_direct_admission(shapes, like, group)
+        self.consensus_producer_direct_lane_status(
+            group,
+            stage="admission",
+            local_status=status,
+            local_reason=reason,
+        )
+        lane = None
+        try:
+            state = self._get_or_create(group)
+            lane = kernel_acquire_producer_direct_lane(state, shapes, like.dtype)
+            acquisition_status, acquisition_reason = 0, ""
+        except Exception as exc:
+            acquisition_status = 1100
+            acquisition_reason = f"lane acquisition raised {type(exc).__name__}: {exc}"
+        # This catches asymmetric validation/setup errors after a collective
+        # Iris allocation has returned. A rank stuck inside that allocation is
+        # still handled by the enclosing startup watchdog.
+        self.consensus_producer_direct_lane_status(
+            group,
+            stage="lane_acquisition",
+            local_status=acquisition_status,
+            local_reason=acquisition_reason,
+        )
+        assert lane is not None
+        return lane
 
     def can_acquire_outputs(
         self,

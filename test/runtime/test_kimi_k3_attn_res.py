@@ -329,6 +329,63 @@ class AttnResTests(unittest.TestCase):
             )
             self.assertEqual(available.call_count, 2)
 
+    def test_fused_model_graph_forwards_context_to_moe(self):
+        hidden_states = torch.ones(2, 4, dtype=torch.bfloat16)
+        block_residual = torch.zeros(2, 2, 4, dtype=torch.bfloat16)
+        expected = torch.full_like(hidden_states, 7)
+        context = object()
+        moe = mock.Mock(return_value=expected)
+        layer = SimpleNamespace(
+            is_block_write_layer=False,
+            block_write_idx=-1,
+            prev_valid_blocks=1,
+            self_attention_res_proj=object(),
+            self_attention_res_norm=object(),
+            input_layernorm=object(),
+            self_attn=mock.Mock(return_value=torch.zeros_like(hidden_states)),
+            comm_manager=SimpleNamespace(get_num_tokens=mock.Mock(return_value=(2, 2))),
+            mapping=SimpleNamespace(attn=SimpleNamespace(tp_group=object())),
+            mlp_res_proj=object(),
+            mlp_res_norm=object(),
+            post_attention_layernorm=object(),
+            is_moe_layer=True,
+            block_sparse_moe=moe,
+            _prepare_next_fallback_attnres_partial=mock.Mock(),
+        )
+
+        with (
+            mock.patch.object(
+                kimi_k3,
+                "_apply_attn_res",
+                side_effect=(hidden_states, hidden_states),
+            ),
+            mock.patch.object(
+                kimi_k3,
+                "all_reduce",
+                return_value=torch.zeros_like(hidden_states),
+            ),
+        ):
+            result, actual_blocks = (
+                kimi_k3.KimiLinearDecoderLayer._forward_fused_attnres_graph(
+                    layer,
+                    positions=torch.empty(0),
+                    hidden_states=hidden_states,
+                    ctx=context,
+                    out_cache_loc=torch.empty(0),
+                    block_residual=block_residual,
+                )
+            )
+
+        self.assertIs(result, expected)
+        self.assertIs(actual_blocks, block_residual)
+        moe.assert_called_once_with(
+            hidden_states,
+            hidden_states,
+            num_global_tokens=2,
+            max_num_tokens_per_gpu=2,
+            ctx=context,
+        )
+
     def test_fused_to_fallback_populates_next_split_partial(self):
         hidden_states = SimpleNamespace(shape=(4, _HIDDEN), is_cuda=True)
         block_residual = torch.zeros(3, 4, _HIDDEN, dtype=torch.bfloat16)

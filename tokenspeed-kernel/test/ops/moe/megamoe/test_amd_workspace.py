@@ -18,30 +18,26 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-"""gfx950 mixture-of-experts kernels."""
+from __future__ import annotations
 
+import torch
 from tokenspeed_kernel_amd.ops.gfx950.moe.megamoe import (
-    KIMI_K3_MEGAMOE_IMPLEMENTATION_COMPLETE,
-    KIMI_K3_MEGAMOE_RAW_TENSOR_NAMES,
-    PreparedKimiK3MegaMoEKernel,
-    allocate_kimi_k3_megamoe_workspace,
-    compile_kimi_k3_megamoe_gfx950,
     kimi_k3_megamoe_workspace_spec,
-    launch_kimi_k3_megamoe_gfx950,
-    launch_prepared_kimi_k3_megamoe_gfx950,
-    preflight_kimi_k3_megamoe_runtime,
-    prepare_kimi_k3_megamoe_gfx950,
 )
 
-__all__ = [
-    "KIMI_K3_MEGAMOE_IMPLEMENTATION_COMPLETE",
-    "KIMI_K3_MEGAMOE_RAW_TENSOR_NAMES",
-    "PreparedKimiK3MegaMoEKernel",
-    "allocate_kimi_k3_megamoe_workspace",
-    "compile_kimi_k3_megamoe_gfx950",
-    "kimi_k3_megamoe_workspace_spec",
-    "launch_kimi_k3_megamoe_gfx950",
-    "launch_prepared_kimi_k3_megamoe_gfx950",
-    "preflight_kimi_k3_megamoe_runtime",
-    "prepare_kimi_k3_megamoe_gfx950",
-]
+
+def test_amd_workspace_spec_is_flat_and_unique() -> None:
+    specs = kimi_k3_megamoe_workspace_spec()
+    assert len(specs) == 31
+    assert len({spec.name for spec in specs}) == len(specs)
+    assert specs[0].name == "router_logits"
+    assert specs[0].shape == (896,)
+    assert specs[0].dtype == torch.float32
+    by_name = {spec.name: spec for spec in specs}
+    assert by_name["xcc_ticket"].shape == (8,)
+    assert by_name["xcc_ticket"].dtype == torch.int64
+    assert by_name["xcd_arrival"].shape == (1,)
+    assert by_name["xcd_arrival"].dtype == torch.int64
+    assert specs[-1].name == "fail_diagnostics"
+    assert specs[-1].shape == (8,)
+    assert specs[-1].dtype == torch.int64

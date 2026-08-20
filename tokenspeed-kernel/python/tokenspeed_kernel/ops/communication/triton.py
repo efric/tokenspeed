@@ -41,6 +41,9 @@ __all__ = [
     "all_reduce",
     "symm_outputs_can_run",
     "acquire_symm_outputs",
+    "acquire_producer_direct_lane",
+    "producer_direct_lane_fatal_epoch",
+    "unpack_producer_direct_lane",
     "all_reduce_symm_can_run",
     "all_reduce_symmetric",
     "allreduce_residual_attnres_combine_supported",
@@ -1951,22 +1954,37 @@ def all_reduce(state: TritonCommState, tensor: torch.Tensor, op=None) -> torch.T
     assert all_reduce_can_run(state, tensor, op=op)
     platform = current_platform()
     if platform.is_amd:
-        import tokenspeed_kernel.ops.communication.iris as _iris_mod
-
-        key = (id(state.group), state.max_bytes, tensor.dtype)
-        iris_state = _iris_mod.IRIS_AR_STATES.get(key)
-        if iris_state is None:
-            iris_state = _iris_mod.create_iris_state(
-                group=state.group,
-                rank_in_group=state.rank_in_group,
-                max_numel=state.max_numel,
-                dtype=tensor.dtype,
-                device=state.device,
-            )
-            _iris_mod.IRIS_AR_STATES[key] = iris_state
+        iris_state, _iris_mod = _get_or_create_iris_all_reduce_state(
+            state, tensor.dtype
+        )
         return _iris_mod.iris_all_reduce(iris_state, tensor, op=op, safe=False)
 
     raise AssertionError(f"Unsupported platform: {platform}")
+
+
+def _get_or_create_iris_all_reduce_state(
+    state: TritonCommState,
+    dtype: torch.dtype,
+):
+    """Return the one Iris owner shared by ordinary and producer-direct paths."""
+
+    import tokenspeed_kernel.ops.communication.iris as _iris_mod
+
+    key = (id(state.group), state.max_bytes, dtype)
+    iris_state = _iris_mod.IRIS_AR_STATES.get(key)
+    if iris_state is None:
+        # The ordinary all-reduce admission window can be smaller than the
+        # backing allocation reserved for producer-direct outputs. All paths
+        # intentionally share this cache key and exact state owner.
+        iris_state = _iris_mod.create_iris_state(
+            group=state.group,
+            rank_in_group=state.rank_in_group,
+            max_numel=state.max_bytes // dtype.itemsize,
+            dtype=dtype,
+            device=state.device,
+        )
+        _iris_mod.IRIS_AR_STATES[key] = iris_state
+    return iris_state, _iris_mod
 
 
 def symm_outputs_can_run(
@@ -2013,21 +2031,37 @@ def acquire_symm_outputs(
     """Acquire consecutive Iris views for producer-direct reduction."""
     if not symm_outputs_can_run(state, shapes, dtype):
         raise RuntimeError("unsupported symmetric all-reduce output request")
+    iris_state, _iris_mod = _get_or_create_iris_all_reduce_state(state, dtype)
+    return _iris_mod.iris_acquire_outputs(iris_state, shapes)
+
+
+def acquire_producer_direct_lane(
+    state: TritonCommState,
+    shapes: tuple[tuple[int, ...], ...],
+    dtype: torch.dtype,
+) -> object:
+    """Borrow opaque fused-kernel state from the exact fallback Iris owner."""
+
+    if not symm_outputs_can_run(state, shapes, dtype):
+        raise RuntimeError("unsupported Iris producer-direct lane request")
+    iris_state, _iris_mod = _get_or_create_iris_all_reduce_state(state, dtype)
+    return _iris_mod.iris_acquire_producer_direct_lane(iris_state, shapes)
+
+
+def unpack_producer_direct_lane(lane: object):
+    """Validate and expose the TokenSpeed-kernel-owned Iris lane ABI."""
+
     import tokenspeed_kernel.ops.communication.iris as _iris_mod
 
-    max_numel = state.max_bytes // dtype.itemsize
-    key = (id(state.group), state.max_bytes, dtype)
-    iris_state = _iris_mod.IRIS_AR_STATES.get(key)
-    if iris_state is None:
-        iris_state = _iris_mod.create_iris_state(
-            group=state.group,
-            rank_in_group=state.rank_in_group,
-            max_numel=max_numel,
-            dtype=dtype,
-            device=state.device,
-        )
-        _iris_mod.IRIS_AR_STATES[key] = iris_state
-    return _iris_mod.iris_acquire_outputs(iris_state, shapes)
+    return _iris_mod.unpack_iris_producer_direct_lane(lane)
+
+
+def producer_direct_lane_fatal_epoch(lane: object) -> torch.Tensor:
+    """Return the validated CUDA INT64 fatal epoch for a borrowed lane."""
+
+    import tokenspeed_kernel.ops.communication.iris as _iris_mod
+
+    return _iris_mod.iris_producer_direct_lane_fatal_epoch(lane)
 
 
 def all_reduce_symm_can_run(

@@ -201,6 +201,7 @@ class CudaGraphWrapper:
         eager_grammar_buffers=None,
         sampling_backend: SamplingBackend | None = None,
         runtime_states: RuntimeStates | None = None,
+        stream: torch.cuda.Stream | None = None,
     ):
         self.config = config
         self.attn_backend = attn_backend
@@ -213,6 +214,10 @@ class CudaGraphWrapper:
         self.capturable_grammar = capturable_grammar
         self.eager_grammar_buffers = eager_grammar_buffers
         self.runtime_states = runtime_states
+        # A caller may provide the model execution stream so capture, eager
+        # fallback, and replay all share one ordering domain. Standalone users
+        # preserve the historical lazy allocation in capture().
+        self.stream = stream
         self.enable_torch_compile = getattr(config, "enable_torch_compile", False)
         self.disable_padding = config.disable_cuda_graph_padding
         self.enable_cudagraph_gc = getattr(config, "enable_cudagraph_gc", True)
@@ -315,7 +320,8 @@ class CudaGraphWrapper:
         """
         rank = self.global_rank
         with freeze_gc(self.enable_cudagraph_gc):
-            self.stream = torch.cuda.Stream()
+            if self.stream is None:
+                self.stream = torch.cuda.Stream()
             # Capture backend-declared sampler variants explicitly.
             capture_items = [
                 (variant, bs)

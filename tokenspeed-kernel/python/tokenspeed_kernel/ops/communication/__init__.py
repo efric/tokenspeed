@@ -116,6 +116,26 @@ def allreduce_lane_latent_norm(
     )
 
 
+def unpack_producer_direct_lane(lane: object):
+    """Validate and expose a TokenSpeed-kernel-owned producer-direct lane."""
+
+    from tokenspeed_kernel.ops.communication.triton import (
+        unpack_producer_direct_lane as _unpack,
+    )
+
+    return _unpack(lane)
+
+
+def producer_direct_lane_fatal_epoch(lane: object) -> torch.Tensor:
+    """Return the validated CUDA INT64 fatal epoch for host result checks."""
+
+    from tokenspeed_kernel.ops.communication.triton import (
+        producer_direct_lane_fatal_epoch as _fatal_epoch,
+    )
+
+    return _fatal_epoch(lane)
+
+
 __all__ = [
     "allgather_dual_rmsnorm",
     "allreduce_fusion_lane",
@@ -123,5 +143,7 @@ __all__ = [
     "allreduce_lane_latent_norm_supported",
     "allreduce_residual_rmsnorm",
     "prepare_allreduce_fusion",
+    "producer_direct_lane_fatal_epoch",
     "reducescatter_residual_rmsnorm",
+    "unpack_producer_direct_lane",
 ]

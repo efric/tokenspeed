@@ -189,6 +189,64 @@ class AutoBackend(CommBackend):
             op=op,
         )
 
+    def consensus_producer_direct_lane_status(
+        self,
+        group: Group,
+        *,
+        stage: str,
+        local_status: int = 0,
+        local_reason: str = "",
+    ) -> None:
+        """Reach rank-uniform agreement through the Gloo control group."""
+
+        self._triton_ar.consensus_producer_direct_lane_status(
+            group,
+            stage=stage,
+            local_status=local_status,
+            local_reason=local_reason,
+        )
+
+    def acquire_producer_direct_lane(
+        self,
+        shapes: tuple[tuple[int, ...], ...],
+        like: torch.Tensor,
+        group: Group,
+        *,
+        local_status: int = 0,
+        local_reason: str = "",
+    ) -> object:
+        """Collectively acquire the AMD producer-direct lane when admitted."""
+
+        status = local_status
+        reason = local_reason
+        try:
+            caller_succeeded = int(status) == 0
+        except Exception:
+            caller_succeeded = False
+        if caller_succeeded:
+            try:
+                if self._force_deterministic_rsag():
+                    status, reason = (
+                        2001,
+                        "deterministic RSAG disables producer-direct",
+                    )
+                elif self._group_spans_nodes(group):
+                    status, reason = 2002, "producer-direct group spans nodes"
+                elif self._trtllm_ar.has_trtllm_ar(group):
+                    status, reason = 2003, "TensorRT-LLM all-reduce owns this group"
+                elif not current_platform().is_amd:
+                    status, reason = 2004, "producer-direct Iris requires AMD"
+            except Exception as exc:
+                status = 2099
+                reason = f"backend admission raised {type(exc).__name__}: {exc}"
+        return self._triton_ar.acquire_producer_direct_lane(
+            shapes,
+            like,
+            group,
+            local_status=status,
+            local_reason=reason,
+        )
+
     def all_gather(
         self, tensor: torch.Tensor, group: Group, dim: int = 0
     ) -> torch.Tensor:

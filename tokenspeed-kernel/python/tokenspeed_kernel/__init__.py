@@ -65,12 +65,17 @@ from tokenspeed_kernel.ops.gemm import (
     mm,
 )
 from tokenspeed_kernel.ops.moe import (
+    KimiK3MegaMoELayerPlan,
+    KimiK3MegaMoELayerSpec,
+    kimi_k3_megamoe_available,
+    kimi_k3_megamoe_decode,
     moe_apply,
     moe_plan,
     moe_process_weights,
     moe_sigmoid_bias_topk,
     moe_softmax_topk,
     native_latent_moe_available,
+    prepare_kimi_k3_megamoe,
 )
 from tokenspeed_kernel.ops.quantization import (
     quantize_fp8,
@@ -86,6 +91,12 @@ from tokenspeed_kernel.selection import NoKernelFoundError
 __all__ = [
     # exceptions
     "NoKernelFoundError",
+    # MegaMoE
+    "KimiK3MegaMoELayerPlan",
+    "KimiK3MegaMoELayerSpec",
+    "kimi_k3_megamoe_available",
+    "kimi_k3_megamoe_decode",
+    "prepare_kimi_k3_megamoe",
     # gemm
     "bmm",
     "kimi3_latent_projection",

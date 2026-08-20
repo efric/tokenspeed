@@ -78,6 +78,65 @@ class CommBackend(ABC):
             raise ValueError("all-reduce requires at least one output")
         return tuple(like.new_empty(shape) for shape in shapes)
 
+    def consensus_producer_direct_lane_status(
+        self,
+        group: Group,
+        *,
+        stage: str,
+        local_status: int = 0,
+        local_reason: str = "",
+    ) -> None:
+        """Reach rank-uniform agreement before a producer-direct stage.
+
+        Args:
+            group: Ordered global ranks that must all enter the stage.
+            stage: Stable name for the stage being admitted.
+            local_status: Zero for local success; nonzero for local failure.
+            local_reason: Bounded diagnostic for a nonzero status.
+
+        Raises:
+            RuntimeError: If any rank rejects the stage.
+        """
+
+        if local_status:
+            raise RuntimeError(
+                f"producer-direct {stage} rejected locally with status "
+                f"{local_status}: {local_reason}"
+            )
+
+    def acquire_producer_direct_lane(
+        self,
+        shapes: tuple[tuple[int, ...], ...],
+        like: torch.Tensor,
+        group: Group,
+        *,
+        local_status: int = 0,
+        local_reason: str = "",
+    ) -> object | None:
+        """Collectively acquire opaque state for a fused producer kernel.
+
+        Args:
+            shapes: Consecutive producer-output shapes required by the kernel.
+            like: Tensor providing the required dtype and device.
+            group: Ordered global ranks participating in every invocation.
+            local_status: Zero after local admission succeeds; nonzero otherwise.
+            local_reason: Bounded diagnostic for a nonzero local status.
+
+        Returns:
+            An opaque backend-owned lane, or ``None`` when unsupported.
+
+        Raises:
+            RuntimeError: If rank-uniform admission fails.
+        """
+
+        self.consensus_producer_direct_lane_status(
+            group,
+            stage="admission",
+            local_status=local_status,
+            local_reason=local_reason,
+        )
+        return None
+
     @abstractmethod
     def all_gather(
         self, tensor: torch.Tensor, group: Group, dim: int = 0

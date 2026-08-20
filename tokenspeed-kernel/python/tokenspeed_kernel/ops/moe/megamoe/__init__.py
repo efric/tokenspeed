@@ -18,30 +18,22 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-"""gfx950 mixture-of-experts kernels."""
+"""Experimental single-kernel Kimi K3 MegaMoE API."""
 
-from tokenspeed_kernel_amd.ops.gfx950.moe.megamoe import (
-    KIMI_K3_MEGAMOE_IMPLEMENTATION_COMPLETE,
-    KIMI_K3_MEGAMOE_RAW_TENSOR_NAMES,
-    PreparedKimiK3MegaMoEKernel,
-    allocate_kimi_k3_megamoe_workspace,
-    compile_kimi_k3_megamoe_gfx950,
-    kimi_k3_megamoe_workspace_spec,
-    launch_kimi_k3_megamoe_gfx950,
-    launch_prepared_kimi_k3_megamoe_gfx950,
-    preflight_kimi_k3_megamoe_runtime,
-    prepare_kimi_k3_megamoe_gfx950,
+from tokenspeed_kernel.ops.moe.megamoe.api import (
+    kimi_k3_megamoe_available,
+    kimi_k3_megamoe_decode,
+    prepare_kimi_k3_megamoe,
+)
+from tokenspeed_kernel.ops.moe.megamoe.types import (
+    KimiK3MegaMoELayerPlan,
+    KimiK3MegaMoELayerSpec,
 )
 
 __all__ = [
-    "KIMI_K3_MEGAMOE_IMPLEMENTATION_COMPLETE",
-    "KIMI_K3_MEGAMOE_RAW_TENSOR_NAMES",
-    "PreparedKimiK3MegaMoEKernel",
-    "allocate_kimi_k3_megamoe_workspace",
-    "compile_kimi_k3_megamoe_gfx950",
-    "kimi_k3_megamoe_workspace_spec",
-    "launch_kimi_k3_megamoe_gfx950",
-    "launch_prepared_kimi_k3_megamoe_gfx950",
-    "preflight_kimi_k3_megamoe_runtime",
-    "prepare_kimi_k3_megamoe_gfx950",
+    "KimiK3MegaMoELayerPlan",
+    "KimiK3MegaMoELayerSpec",
+    "kimi_k3_megamoe_available",
+    "kimi_k3_megamoe_decode",
+    "prepare_kimi_k3_megamoe",
 ]

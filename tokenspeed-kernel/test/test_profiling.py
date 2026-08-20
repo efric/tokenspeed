@@ -21,6 +21,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 
 import pytest
 import tokenspeed_kernel.profiling as profiling
@@ -123,6 +125,15 @@ def test_start_and_stop_calls_proton(monkeypatch):
         )
     ]
     assert fake.finalize_calls == [((123, "chrome_trace"), {})]
+
+
+def test_proton_import_is_lazy() -> None:
+    source = """
+import sys
+import tokenspeed_kernel.profiling
+assert 'tokenspeed_triton.profiler' not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", source], check=True)
 
 
 def test_stop_clears_state_when_proton_finalize_fails(monkeypatch):

@@ -30,7 +30,7 @@ from tokenspeed.runtime.execution.weight_loader import WeightLoader
 from tokenspeed.runtime.layers.moe.utils import initialize_moe_config
 from tokenspeed.runtime.multimodal.embedder import warmup_multimodal_encoders
 from tokenspeed.runtime.utils import get_colorful_logger
-from tokenspeed.runtime.utils.env import global_server_args_dict_update
+from tokenspeed.runtime.utils.env import envs, global_server_args_dict_update
 from tokenspeed.runtime.utils.torch_memory_saver_adapter import TorchMemorySaverAdapter
 
 if TYPE_CHECKING:
@@ -41,6 +41,22 @@ if TYPE_CHECKING:
     from tokenspeed.runtime.utils.server_args import ServerArgs
 
 logger = get_colorful_logger(__name__)
+
+
+def validate_kimi_k3_megamoe_fatal_epoch_slots(
+    *, overlap_schedule_depth: int, slot_count: int
+) -> None:
+    """Require one fatal-epoch host slot per simultaneously live result."""
+
+    if overlap_schedule_depth < 0:
+        raise ValueError("overlap schedule depth cannot be negative")
+    required_slots = overlap_schedule_depth + 1
+    if slot_count < required_slots:
+        raise RuntimeError(
+            "Kimi-K3 MegaMoE fatal-epoch D2H needs at least "
+            f"{required_slots} host slots for overlap depth "
+            f"{overlap_schedule_depth}, got {slot_count}"
+        )
 
 
 def infer_multimodal_encoder_dtype(model: torch.nn.Module) -> str | None:
@@ -140,9 +156,64 @@ class ModelRunner:
             gpu_id=self.gpu_id,
             memory_saver_adapter=self.memory_saver_adapter,
         )
+        self._kimi_k3_megamoe_fatal_epoch_gpu = None
+        self._kimi_k3_megamoe_fatal_epoch_cpu_slots = None
+        self._kimi_k3_megamoe_fatal_epoch_copy_index = 0
+        self._kimi_k3_megamoe_fatal_epoch_d2h_enabled = False
+        if self.server_args.enable_kimi_k3_megamoe:
+            from tokenspeed.runtime.distributed.comm_ops import (
+                producer_direct_lane_fatal_epoch,
+            )
+
+            plans = self.model._kimi_k3_megamoe_layer_plans
+            fatal_epoch = producer_direct_lane_fatal_epoch(plans[0].lane)
+            if (
+                not isinstance(fatal_epoch, torch.Tensor)
+                or fatal_epoch.dtype != torch.int64
+                or tuple(fatal_epoch.shape) != (1,)
+                or not fatal_epoch.is_cuda
+            ):
+                raise RuntimeError(
+                    "Kimi-K3 MegaMoE lane must expose a graph-stable CUDA "
+                    "INT64 fatal epoch with shape (1,)"
+                )
+            self._kimi_k3_megamoe_fatal_epoch_gpu = fatal_epoch
+            self._kimi_k3_megamoe_fatal_epoch_d2h_enabled = (
+                envs.TOKENSPEED_K3_MEGAMOE_FATAL_EPOCH_D2H.get()
+            )
+            if self._kimi_k3_megamoe_fatal_epoch_d2h_enabled:
+                # The overlap scheduler has one previous result pending while it
+                # enqueues the current replay. Give each in-flight D2H copy its own
+                # pinned destination so the current copy cannot race the host read
+                # of the previous result's fatal epoch.
+                self._kimi_k3_megamoe_fatal_epoch_cpu_slots = tuple(
+                    torch.empty((1,), dtype=torch.int64, device="cpu", pin_memory=True)
+                    for _ in range(2)
+                )
+            else:
+                logger.warning(
+                    "Kimi-K3 MegaMoE per-result fatal-epoch D2H check is disabled"
+                )
         self._model_forward_accepts_spec_step_idx = self._forward_accepts_kwarg(
             self.model, "spec_step_idx"
         )
+
+    def enqueue_kimi_k3_megamoe_fatal_epoch_d2h(self) -> torch.Tensor | None:
+        """Enqueue the fail-stop epoch copy on the current model stream."""
+
+        fatal_gpu = self._kimi_k3_megamoe_fatal_epoch_gpu
+        if not self._kimi_k3_megamoe_fatal_epoch_d2h_enabled:
+            return None
+        fatal_cpu_slots = self._kimi_k3_megamoe_fatal_epoch_cpu_slots
+        if fatal_gpu is None:
+            return None
+        if not fatal_cpu_slots:
+            raise RuntimeError("Kimi-K3 MegaMoE fatal-epoch host buffers are missing")
+        copy_index = self._kimi_k3_megamoe_fatal_epoch_copy_index
+        fatal_cpu = fatal_cpu_slots[copy_index % len(fatal_cpu_slots)]
+        self._kimi_k3_megamoe_fatal_epoch_copy_index = copy_index + 1
+        fatal_cpu.copy_(fatal_gpu, non_blocking=True)
+        return fatal_cpu
 
     @property
     def multimodal_encoder_dtype(self) -> str | None:
@@ -310,6 +381,13 @@ class ModelRunner:
 
     def update_weights_from_distributed(self, obj) -> tuple[bool, str]:
         """Receive trainer-broadcast weights over the NCCL group and load them."""
+        if self.server_args.enable_kimi_k3_megamoe:
+            return (
+                False,
+                "Online distributed weight replacement is disabled while "
+                "Kimi-K3 MegaMoE is enabled",
+            )
+
         import torch.distributed as dist
 
         pg = getattr(self, "_weight_update_pg", None)

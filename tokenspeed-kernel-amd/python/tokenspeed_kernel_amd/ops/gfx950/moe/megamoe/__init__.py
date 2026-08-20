@@ -18,25 +18,36 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-"""gfx950 mixture-of-experts kernels."""
+"""Experimental single-dispatch Kimi K3 MegaMoE kernel for gfx950."""
 
-from tokenspeed_kernel_amd.ops.gfx950.moe.megamoe import (
-    KIMI_K3_MEGAMOE_IMPLEMENTATION_COMPLETE,
+from tokenspeed_kernel_amd.ops.gfx950.moe.megamoe.admission import (
+    admit_kimi_k3_megamoe_compiled_kernel,
+    preflight_kimi_k3_megamoe_runtime,
+)
+from tokenspeed_kernel_amd.ops.gfx950.moe.megamoe.kernel import (
     KIMI_K3_MEGAMOE_RAW_TENSOR_NAMES,
     PreparedKimiK3MegaMoEKernel,
-    allocate_kimi_k3_megamoe_workspace,
     compile_kimi_k3_megamoe_gfx950,
-    kimi_k3_megamoe_workspace_spec,
     launch_kimi_k3_megamoe_gfx950,
     launch_prepared_kimi_k3_megamoe_gfx950,
-    preflight_kimi_k3_megamoe_runtime,
     prepare_kimi_k3_megamoe_gfx950,
 )
+from tokenspeed_kernel_amd.ops.gfx950.moe.megamoe.workspace import (
+    MegaMoETensorSpec,
+    allocate_kimi_k3_megamoe_workspace,
+    kimi_k3_megamoe_workspace_spec,
+)
+
+# Fail closed until projection, routing, both expert GEMVs, Iris, final output,
+# and their numerical/liveness tests all pass on the production code object.
+KIMI_K3_MEGAMOE_IMPLEMENTATION_COMPLETE = True
 
 __all__ = [
     "KIMI_K3_MEGAMOE_IMPLEMENTATION_COMPLETE",
     "KIMI_K3_MEGAMOE_RAW_TENSOR_NAMES",
+    "MegaMoETensorSpec",
     "PreparedKimiK3MegaMoEKernel",
+    "admit_kimi_k3_megamoe_compiled_kernel",
     "allocate_kimi_k3_megamoe_workspace",
     "compile_kimi_k3_megamoe_gfx950",
     "kimi_k3_megamoe_workspace_spec",

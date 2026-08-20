@@ -403,6 +403,11 @@ class SchedulerControlClient:
         self: AsyncLLM,
         obj: UpdateWeightsFromDistributedReqInput,
     ) -> tuple[bool, str]:
+        if self.server_args.enable_kimi_k3_megamoe:
+            raise RuntimeError(
+                "Online distributed weight replacement is disabled while "
+                "Kimi-K3 MegaMoE is enabled"
+            )
         self.auto_create_handle_loop()
         if self.server_args.mapping.attn.has_dp:
             raise RuntimeError("dp_size must be 1 for update weights from distributed")
@@ -417,6 +422,11 @@ class SchedulerControlClient:
         self: AsyncLLM,
         obj: UpdateWeightsFromTensorReqInput,
     ) -> tuple[bool, str]:
+        if self.server_args.enable_kimi_k3_megamoe:
+            raise RuntimeError(
+                "Online tensor weight replacement is disabled while Kimi-K3 "
+                "MegaMoE is enabled"
+            )
         self.auto_create_handle_loop()
         if self.server_args.mapping.attn.has_dp:
             raise RuntimeError("dp_size must be 1 for update weights from tensor")

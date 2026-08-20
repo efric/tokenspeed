@@ -217,6 +217,7 @@ class ServerArgs:
     # MoE backend
     moe_backend: str = "auto"
     draft_moe_backend: str | None = None
+    enable_kimi_k3_megamoe: bool = False
     all2all_backend: str = "none"
     deepep_mode: Literal["auto", "normal", "low_latency"] = "auto"
     disable_flashinfer_cutlass_moe_fp4_allgather: bool = False
@@ -1425,6 +1426,15 @@ class ServerArgs:
             default=ServerArgs.draft_moe_backend,
             help="MoE runner backend for the draft model in speculative decoding. "
             "If not set, defaults to --moe-backend.",
+        )
+        parser.add_argument(
+            "--enable-kimi-k3-megamoe",
+            action="store_true",
+            default=ServerArgs.enable_kimi_k3_megamoe,
+            help=(
+                "Enable the experimental gfx950 Kimi-K3 batch-size-one "
+                "persistent MegaMoE path."
+            ),
         )
         parser.add_argument(
             "--all2all-backend",
