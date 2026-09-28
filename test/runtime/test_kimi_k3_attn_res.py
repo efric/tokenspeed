@@ -78,14 +78,20 @@ def _reference_apply_attn_res(prefix_sum, block_residual, proj, norm):
 
 class AttnResTests(unittest.TestCase):
     def test_batched_iris_reduce_consumes_attnres_combine(self):
-        import tokenspeed_kernel.ops.communication.triton as triton_comm
+        import tokenspeed_kernel.ops.communication._iris.adapter as triton_comm
 
         import tokenspeed.runtime.models.kimi_k3_comm as kimi_k3_comm
 
         group = object()
         state = SimpleNamespace(
-            attn_ar_fusion_ok=False,
-            cute_ar=None,
+            reduction=SimpleNamespace(
+                native=None,
+                vendor_fusion=False,
+                max_tokens=2048,
+                group=group,
+                rank=0,
+                local_world_size=8,
+            ),
             mapping=SimpleNamespace(
                 nprocs_per_node=8,
                 attn=SimpleNamespace(tp_rank=0, tp_group=tuple(range(8))),
@@ -130,14 +136,20 @@ class AttnResTests(unittest.TestCase):
         fused.assert_called_once()
 
     def test_fused_attention_window_defers_attnres_combine(self):
-        import tokenspeed_kernel.ops.communication.triton as triton_comm
+        import tokenspeed_kernel.ops.communication._iris.adapter as triton_comm
 
         import tokenspeed.runtime.models.kimi_k3_comm as kimi_k3_comm
 
         group = object()
         state = SimpleNamespace(
-            attn_ar_fusion_ok=False,
-            cute_ar=None,
+            reduction=SimpleNamespace(
+                native=None,
+                vendor_fusion=False,
+                max_tokens=2048,
+                group=group,
+                rank=0,
+                local_world_size=8,
+            ),
             mapping=SimpleNamespace(
                 nprocs_per_node=8,
                 attn=SimpleNamespace(tp_rank=0, tp_group=tuple(range(8))),
@@ -178,10 +190,12 @@ class AttnResTests(unittest.TestCase):
         torch.testing.assert_close(residual, prefix + reduced)
         self.assertIsNone(hidden)
         supported.assert_called_once()
-        fallback_reduce.assert_called_once_with(partial, state.mapping.attn.tp_group)
+        fallback_reduce.assert_called_once()
+        self.assertIs(fallback_reduce.call_args.args[0], partial)
+        self.assertEqual(fallback_reduce.call_args.args[1], state.mapping.attn.tp_group)
 
     def test_fused_attention_reduce_window(self):
-        import tokenspeed_kernel.ops.communication.triton as triton_comm
+        import tokenspeed_kernel.ops.communication._iris.adapter as triton_comm
 
         import tokenspeed.runtime.models.kimi_k3_comm as kimi_k3_comm
 
@@ -214,13 +228,21 @@ class AttnResTests(unittest.TestCase):
                         dtype=torch.bfloat16,
                     )
                     state = SimpleNamespace(
+                        reduction=SimpleNamespace(
+                            native=None,
+                            vendor_fusion=False,
+                            max_tokens=2048,
+                            group=object(),
+                            rank=0,
+                            local_world_size=8,
+                        ),
                         mapping=SimpleNamespace(
                             nprocs_per_node=8,
                             attn=SimpleNamespace(
                                 tp_rank=0,
                                 tp_group=tuple(range(8)),
                             ),
-                        )
+                        ),
                     )
                     comm = kimi_k3_comm.K3AttnComm(state)
                     self.assertEqual(
@@ -597,8 +619,10 @@ class AttnResTests(unittest.TestCase):
             self_attn=attention,
             comm_manager=object(),
             k3_comm=SimpleNamespace(
-                state=SimpleNamespace(attn_ar_fusion_ok=False),
-                fused_attnres_reduce_available=mock.Mock(return_value=True),
+                bind_reduce=mock.Mock(
+                    return_value=SimpleNamespace(consumes_partials=True)
+                ),
+                run_reduce=reduce,
             ),
             attn_fork=fork,
             _reduce_attn_accumulate=reduce,
@@ -608,16 +632,33 @@ class AttnResTests(unittest.TestCase):
 
         # Exercise NVIDIA (0) and AMD (16) thresholds on either host. Scratch
         # consumers must follow scope exit even when the producer overlaps.
-        for fork_threshold, is_capture, fork_enabled in (
-            (0, False, False),
-            (0, True, True),
-            (16, False, False),
-            (16, True, False),
+        for fork_threshold, is_capture, fork_enabled, consumes in (
+            (0, False, False, True),
+            (0, True, True, True),
+            (16, False, False, True),
+            (16, True, False, True),
+            (0, True, True, False),
         ):
             with self.subTest(fork_threshold=fork_threshold, is_capture=is_capture):
                 events.clear()
                 reduce.reset_mock()
+                layer.k3_comm.bind_reduce.reset_mock()
+                layer.k3_comm.bind_reduce.return_value = (
+                    SimpleNamespace(consumes_partials=True) if consumes else None
+                )
+                reduce.side_effect = lambda *_args, **_kwargs: (
+                    events.append("reduce"),
+                    (prefix, hidden if consumes else None),
+                )[1]
                 with (
+                    mock.patch.object(
+                        kimi_k3,
+                        "attnres_combine",
+                        side_effect=lambda *_args, **_kwargs: (
+                            events.append("combine"),
+                            hidden,
+                        )[1],
+                    ),
                     mock.patch.object(
                         kimi_k3, "ATTNRES_STREAM_FORK_THRESHOLD", fork_threshold
                     ),
@@ -643,9 +684,18 @@ class AttnResTests(unittest.TestCase):
 
                 self.assertEqual(fork.assert_enabled, fork_enabled)
                 self.assertEqual(
-                    events, ["partial", "attention", "scope_exit", "reduce"]
+                    events,
+                    (
+                        ["partial", "attention", "scope_exit", "reduce"]
+                        if consumes
+                        else ["partial", "attention", "reduce", "scope_exit", "combine"]
+                    ),
                 )
                 reduce.assert_called_once()
+                layer.k3_comm.bind_reduce.assert_called_once()
+                self.assertIs(
+                    reduce.call_args.args[0], layer.k3_comm.bind_reduce.return_value
+                )
 
     def test_fused_to_fallback_populates_next_split_partial(self):
         hidden_states = SimpleNamespace(shape=(4, _HIDDEN), is_cuda=True)

@@ -37,7 +37,7 @@ class TestAutoBackendTopology:
         backend = AutoBackend.__new__(AutoBackend)
         backend._nccl = Mock()
         backend._rsag = Mock()
-        backend._triton_ar = Mock()
+        backend._kernel_ar = Mock()
         backend._trtllm_ar = Mock()
         backend._trtllm_ar.has_trtllm_ar.return_value = False
         # A host-spread group's rsag routing keys on the fabric probe, so pin
@@ -145,7 +145,7 @@ class TestAutoBackendTopology:
             tensor, tuple(range(8)), op=None
         )
         backend._trtllm_ar.has_trtllm_ar.assert_called_once_with(tuple(range(8)))
-        backend._triton_ar.can_run.assert_not_called()
+        backend._kernel_ar.can_run.assert_not_called()
 
     def test_cross_node_all_reduce_uses_trtllm_when_armed(self, backend):
         """An armed mnnvl workspace serves cross-node groups directly."""
@@ -216,7 +216,7 @@ class TestAutoBackendTopology:
         backend._nccl.all_reduce.return_value = "nccl-result"
 
         assert backend.all_reduce(tensor, tuple(range(8))) == "nccl-result"
-        backend._triton_ar.can_run.assert_not_called()
+        backend._kernel_ar.can_run.assert_not_called()
 
 
 def test_fabric_map_gathers_world_once_and_serves_groups_locally(monkeypatch):
@@ -225,6 +225,9 @@ def test_fabric_map_gathers_world_once_and_serves_groups_locally(monkeypatch):
     original_tensor = torch.tensor
     original_empty_like = torch.empty_like
     monkeypatch.setattr(fabric, "_fabric_map", None)
+    monkeypatch.setattr(
+        fabric, "current_platform", lambda: SimpleNamespace(is_nvidia=True)
+    )
     monkeypatch.setattr(torch.cuda, "current_device", lambda: 2)
     monkeypatch.setattr(fabric, "fabric_allocation_supported", lambda device: True)
     monkeypatch.setattr(torch.distributed, "get_world_size", lambda: 4)

@@ -18,164 +18,76 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-"""Triton all-reduce backend for latency-sensitive small AMD tensors."""
+
+"""Generic runtime adapter for kernel-package all-reduce implementations."""
 
 import math
 
 import torch
 import torch.distributed as dist
-from tokenspeed_kernel.ops.communication.triton import (
+from tokenspeed_kernel.ops.communication import (
+    DEFAULT_PRODUCER_DIRECT_MAX_BYTES,
+    AllReducePreparation,
     acquire_symm_outputs,
     all_reduce,
     all_reduce_can_run,
+    all_reduce_capacity,
     all_reduce_symm_can_run,
     all_reduce_symmetric,
-    create_state,
-    initialize_all_reduce_state,
+    create_all_reduce_handle,
+    prepare_all_reduce_handle,
+    producer_all_reduce_available,
     symm_outputs_can_run,
 )
-from tokenspeed_kernel.platform import current_platform
 
 from tokenspeed.runtime.distributed.comm_backend.base import CommBackend, Group
 from tokenspeed.runtime.distributed.process_group_manager import (
     process_group_manager as pg_manager,
 )
 
-# Preserve the measured ordinary-Iris window while allowing a larger
-# producer-direct backing allocation.
-_DEFAULT_PRODUCER_DIRECT_MAX_BYTES = 1024 * 1024
-_DEFAULT_ALL_REDUCE_MAX_BYTES = 512 * 1024
 
-
-class TritonAllReduceBackend(CommBackend):
-    def __init__(
-        self,
-        fallback: CommBackend,
-        producer_direct_max_bytes: int = _DEFAULT_PRODUCER_DIRECT_MAX_BYTES,
-    ):
+class KernelAllReduceBackend(CommBackend):
+    def __init__(self, fallback: CommBackend, producer_direct_max_bytes: int):
         self._fallback = fallback
         self._instances = {}
         self._producer_direct_max_bytes = producer_direct_max_bytes
-        self._max_numel = (
-            min(producer_direct_max_bytes, _DEFAULT_ALL_REDUCE_MAX_BYTES)
-            // torch.empty((), dtype=torch.bfloat16).element_size()
-        )
 
     @property
     def producer_direct_max_bytes(self) -> int:
         return self._producer_direct_max_bytes
 
     def _get_or_create(self, group: Group):
-        if group in self._instances:
-            return self._instances[group]
-
-        state = create_state(
-            group=pg_manager.get_process_group("nccl", group),
-            rank_in_group=group.index(dist.get_rank()),
-            attnres_max_numel=0,
-            attnres_max_rows=0,
-            enable_lamport=False,
-            max_tokens=0,
-            hidden_size=0,
-            max_numel=self._max_numel,
-            max_bytes=self._producer_direct_max_bytes,
-            device=torch.device(f"cuda:{torch.cuda.current_device()}"),
-        )
-        self._instances[group] = state
-        return state
+        if group not in self._instances:
+            self._instances[group] = create_all_reduce_handle(
+                group=pg_manager.get_process_group("nccl", group),
+                rank_in_group=group.index(dist.get_rank()),
+                device=torch.device(f"cuda:{torch.cuda.current_device()}"),
+                producer_direct_max_bytes=self._producer_direct_max_bytes,
+            )
+        return self._instances[group]
 
     def prepare_all_reduce_buffers(
         self,
         group: Group,
         *,
-        staged_max_numel: int,
-        producer_direct_max_numel: int,
-        attnres_max_numel: int,
-        attnres_max_rows: int,
-        enable_lamport: bool,
-        dtype: torch.dtype,
+        preparation: AllReducePreparation,
     ) -> bool:
-        """Allocate or reuse an Iris state with the requested path capacities.
-
-        Args:
-            group: Global ranks participating in the reductions.
-            staged_max_numel: Requested ordinary all-reduce payload in elements.
-            producer_direct_max_numel: Requested producer-direct payload in elements.
-            attnres_max_numel: Maximum fused AttnRes payload in elements.
-            attnres_max_rows: Maximum fused AttnRes payload in rows.
-            enable_lamport: Allow Lamport for eligible producer-direct payloads.
-            dtype: Element type shared by the prepared paths.
-
-        Returns:
-            Whether Iris prepared the requested buffers on this platform.
-        """
-
-        if len(group) <= 1 or not current_platform().is_amd:
-            return False
-        if dtype != torch.bfloat16:
-            return False
-        staged_max_numel = min(staged_max_numel, self._max_numel)
-        requested = (
-            staged_max_numel,
-            producer_direct_max_numel * dtype.itemsize,
-            attnres_max_numel,
-            attnres_max_rows,
-        )
-        if min(requested) < 0 or not any(requested):
-            raise ValueError(f"invalid all-reduce buffer capacities: {requested}")
-        if bool(attnres_max_numel) != bool(attnres_max_rows):
-            raise ValueError(
-                "AttnRes element and row capacities must both be zero or non-zero"
-            )
-
-        state = self._instances.get(group)
-        if state is not None:
-            if state.enable_lamport != enable_lamport:
-                raise RuntimeError(
-                    "all-reduce buffers were initialized with a different Lamport policy"
-                )
-            available = (
-                state.max_numel,
-                state.max_bytes,
-                state.attnres_max_numel,
-                state.max_token_num,
-            )
-            if any(have < need for have, need in zip(available, requested)):
-                raise RuntimeError(
-                    "all-reduce buffers were initialized below the requested "
-                    f"capacities: available={available}, requested={requested}"
-                )
-            initialize_all_reduce_state(state, dtype)
-            return True
-
-        state = create_state(
+        """Prepare opaque kernel storage from group-wide operation demands."""
+        state = prepare_all_reduce_handle(
             group=pg_manager.get_process_group("nccl", group),
             rank_in_group=group.index(dist.get_rank()),
-            max_tokens=0,
-            hidden_size=0,
             device=torch.device(f"cuda:{torch.cuda.current_device()}"),
-            max_numel=staged_max_numel,
-            max_bytes=producer_direct_max_numel * dtype.itemsize,
-            attnres_max_numel=attnres_max_numel,
-            attnres_max_rows=attnres_max_rows,
-            enable_lamport=enable_lamport,
+            preparation=preparation,
+            previous=self._instances.get(group),
+            producer_direct_max_bytes=self._producer_direct_max_bytes,
         )
-        initialize_all_reduce_state(state, dtype)
+        if state is None:
+            return False
         self._instances[group] = state
         return True
 
     def can_run(self, tensor: torch.Tensor, group: Group, op=None) -> bool:
-        if len(group) <= 1 or not current_platform().is_amd:
-            return False
-        if op is None:
-            op = torch.distributed.ReduceOp.SUM
-        if not (
-            op == torch.distributed.ReduceOp.SUM
-            and tensor.is_cuda
-            and tensor.is_contiguous()
-            and tensor.dtype == torch.bfloat16
-            and 0 < tensor.numel() <= self._max_numel
-        ):
+        if len(group) <= 1:
             return False
         try:
             return all_reduce_can_run(self._get_or_create(group), tensor, op=op)
@@ -205,7 +117,7 @@ class TritonAllReduceBackend(CommBackend):
         group: Group,
         op=None,
     ) -> tuple[torch.Tensor, ...]:
-        """Acquire symmetric outputs when Iris supports the request."""
+        """Acquire producer outputs when the kernel implementation supports them."""
         if not self.can_acquire_outputs(shapes, like, group, op=op):
             return super().acquire_all_reduce_outputs(shapes, like, group, op=op)
 
@@ -220,7 +132,7 @@ class TritonAllReduceBackend(CommBackend):
         group: Group,
         op=None,
     ) -> bool:
-        """Iris returns symmetric outputs the reduction consumes in place."""
+        """Whether the implementation can consume acquired producer storage."""
         return self.can_acquire_outputs(shapes, like, group, op=op)
 
     def can_acquire_outputs(
@@ -230,13 +142,15 @@ class TritonAllReduceBackend(CommBackend):
         group: Group,
         op=None,
     ) -> bool:
-        """Check producer-direct eligibility without initializing Iris."""
-        if not current_platform().is_cdna4 or not like.is_cuda:
+        """Check producer-direct eligibility without allocating kernel storage."""
+        if not producer_all_reduce_available() or not like.is_cuda:
             return False
         total_bytes = sum(math.prod(shape) for shape in shapes) * like.dtype.itemsize
         state = self._instances.get(group)
         max_bytes = (
-            state.max_bytes if state is not None else self._producer_direct_max_bytes
+            all_reduce_capacity(state)
+            if state is not None
+            else self._producer_direct_max_bytes
         )
         if total_bytes > max_bytes:
             return False

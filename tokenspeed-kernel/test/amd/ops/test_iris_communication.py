@@ -78,7 +78,7 @@ def _spawn_and_collect(worker_fn, args, world_size: int) -> None:
 
 @pytest.mark.parametrize("enable_lamport", [False, True])
 def test_iris_state_uses_path_capacities(monkeypatch, enable_lamport):
-    from tokenspeed_kernel.ops.communication import triton as triton_ops
+    from tokenspeed_kernel.ops.communication._iris import adapter as triton_ops
 
     created = []
 
@@ -124,7 +124,7 @@ def test_iris_state_uses_path_capacities(monkeypatch, enable_lamport):
 def test_iris_state_reuses_prepared_capacity(
     monkeypatch, prepared_lamport, requested_lamport, max_bytes
 ):
-    from tokenspeed_kernel.ops.communication import triton as triton_ops
+    from tokenspeed_kernel.ops.communication._iris import adapter as triton_ops
 
     group = object()
     device = torch.device("cpu")
@@ -165,7 +165,7 @@ def test_iris_state_reuses_prepared_capacity(
 
 
 def test_iris_context_rejects_late_heap_growth(monkeypatch):
-    from tokenspeed_kernel.ops.communication import iris as iris_ops
+    from tokenspeed_kernel.ops.communication._iris import context as iris_ops
 
     context = SimpleNamespace(heap_size=256)
     monkeypatch.setattr(iris_ops, "_iris_ctx_singleton", context)
@@ -182,7 +182,7 @@ def test_producer_direct_admission_supported_world_sizes(
     world_size,
     dtype,
 ):
-    from tokenspeed_kernel.ops.communication import triton as triton_ops
+    from tokenspeed_kernel.ops.communication._iris import adapter as triton_ops
 
     monkeypatch.setattr(
         triton_ops,
@@ -207,7 +207,7 @@ def test_producer_direct_admission_supported_world_sizes(
     ],
 )
 def test_producer_direct_admission_uses_byte_capacity(monkeypatch, dtype, shapes):
-    from tokenspeed_kernel.ops.communication import triton as triton_ops
+    from tokenspeed_kernel.ops.communication._iris import adapter as triton_ops
 
     monkeypatch.setattr(
         triton_ops,
@@ -238,7 +238,7 @@ def test_producer_direct_admission_rejects_unsupported_requests(
     dtype,
     op,
 ):
-    from tokenspeed_kernel.ops.communication import triton as triton_ops
+    from tokenspeed_kernel.ops.communication._iris import adapter as triton_ops
 
     monkeypatch.setattr(
         triton_ops,
@@ -251,7 +251,7 @@ def test_producer_direct_admission_rejects_unsupported_requests(
 
 
 def test_producer_direct_admission_is_cdna4_only(monkeypatch):
-    from tokenspeed_kernel.ops.communication import triton as triton_ops
+    from tokenspeed_kernel.ops.communication._iris import adapter as triton_ops
 
     monkeypatch.setattr(
         triton_ops,
@@ -278,7 +278,7 @@ def test_producer_direct_admission_is_cdna4_only(monkeypatch):
 )
 def test_producer_direct_two_stage_threshold(world_size, dtype, min_bytes):
     try:
-        from tokenspeed_kernel.ops.communication.iris import (
+        from tokenspeed_kernel.ops.communication._iris.policy import (
             IRIS_ALL_REDUCE_KERNEL_CONFIG,
             _use_two_stage_producer_direct,
         )
@@ -307,7 +307,7 @@ def test_tp4_decode_staged_path_only_keeps_small_one_shot_shape(
     expected_path,
     expected_schedule,
 ):
-    from tokenspeed_kernel.ops.communication import iris as iris_ops
+    from tokenspeed_kernel.ops.communication._iris import policy as iris_ops
 
     monkeypatch.setattr(iris_ops, "_platform", SimpleNamespace(is_cdna4=True))
 
@@ -325,7 +325,9 @@ def test_tp4_decode_staged_path_only_keeps_small_one_shot_shape(
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 def test_plain_two_stage_admits_partitionable_shapes(dtype):
     try:
-        from tokenspeed_kernel.ops.communication.iris import _use_two_stage_plain
+        from tokenspeed_kernel.ops.communication._iris.policy import (
+            _use_two_stage_plain,
+        )
     except ImportError:
         pytest.skip("iris is not installed")
 
@@ -347,7 +349,7 @@ def test_plain_two_stage_admits_partitionable_shapes(dtype):
 
 def test_plain_two_stage_is_independent_of_producer_thresholds(monkeypatch):
     try:
-        from tokenspeed_kernel.ops.communication import iris as iris_ops
+        from tokenspeed_kernel.ops.communication._iris import policy as iris_ops
     except ImportError:
         pytest.skip("iris is not installed")
 
@@ -377,7 +379,9 @@ def test_plain_two_stage_rejects_unsupported_dtypes(dtype):
     which would divide by zero in the alignment check itself.
     """
     try:
-        from tokenspeed_kernel.ops.communication.iris import _use_two_stage_plain
+        from tokenspeed_kernel.ops.communication._iris.policy import (
+            _use_two_stage_plain,
+        )
     except ImportError:
         pytest.skip("iris is not installed")
 
@@ -405,7 +409,9 @@ def test_two_stage_state_gate_matches_dispatch(world_size, dtype, supported):
     conditions.
     """
     try:
-        from tokenspeed_kernel.ops.communication.iris import _use_two_stage_plain
+        from tokenspeed_kernel.ops.communication._iris.policy import (
+            _use_two_stage_plain,
+        )
     except ImportError:
         pytest.skip("iris is not installed")
 
@@ -471,14 +477,14 @@ def _ar_worker_main(rank: int, world_size: int, port: int) -> None:
     try:
         # Importing inside the worker avoids pulling iris into the parent
         # process (which has no distributed context).
-        from tokenspeed_kernel.ops.communication.iris import (
+        from tokenspeed_kernel.ops.communication._iris.policy import (
             IRIS_ALL_REDUCE_KERNEL_CONFIG,
             _select_staged_all_reduce_path,
-            create_iris_state,
         )
+        from tokenspeed_kernel.ops.communication.iris import create_iris_state
 
         kernel_config = IRIS_ALL_REDUCE_KERNEL_CONFIG
-        attnres_config = kernel_config.kimi_k3_attnres
+        attnres_config = kernel_config.attnres
         output_shape_cases = _ar_output_shape_cases()
         staged_max_numel = max(
             max(int(torch.tensor(shape).prod()) for shape in _ar_shape_cases()),
@@ -503,7 +509,7 @@ def _ar_worker_main(rank: int, world_size: int, port: int) -> None:
             heap_size=None,
             device=device,
         )
-        assert state._input_buf.numel() == producer_direct_max_numel
+        assert state.producer.input.numel() == producer_direct_max_numel
         producer_direct_two_stage = kernel_config.producer_direct.two_stage_threshold(
             world_size
         ) is not None and kernel_config.two_stage.supports_world_size(world_size)
@@ -516,10 +522,10 @@ def _ar_worker_main(rank: int, world_size: int, port: int) -> None:
             else 0
         )
         if scratch_numel:
-            assert state._producer_direct_scratch_buf.numel() == scratch_numel
+            assert state.producer.scratch.numel() == scratch_numel
         else:
-            assert state._producer_direct_scratch_buf is None
-        assert state._producer_direct_ready_flags.shape == (
+            assert state.producer.scratch is None
+        assert state.producer.flags.shape == (
             max(
                 kernel_config.producer_direct.one_stage_max_programs,
                 (
@@ -530,11 +536,11 @@ def _ar_worker_main(rank: int, world_size: int, port: int) -> None:
             ),
             world_size,
         )
-        assert state._staged_input_buf.shape == (
+        assert state.staged.input.shape == (
             kernel_config.staged.input_slots,
             staged_max_numel,
         )
-        assert state._ready_flags.shape == (
+        assert state.staged.flags.shape == (
             kernel_config.staged.max_programs(staged_max_numel),
             world_size,
         )
@@ -546,37 +552,37 @@ def _ar_worker_main(rank: int, world_size: int, port: int) -> None:
                 is_cdna4=True,
             )
             assert tuning is not None
-            tuned_input, tuned_ready = state._staged_tuning_workspaces[tuning]
+            tuned_input, tuned_ready = state.staged.tunings[tuning]
             assert tuned_input.shape == (
                 kernel_config.staged.input_slots,
                 tuning.numel,
             )
             assert tuned_ready.shape == (tuning.num_programs(), world_size)
-            assert tuned_input.data_ptr() != state._staged_input_buf.data_ptr()
-            assert tuned_ready.data_ptr() != state._ready_flags.data_ptr()
+            assert tuned_input.data_ptr() != state.staged.input.data_ptr()
+            assert tuned_ready.data_ptr() != state.staged.flags.data_ptr()
         if state._staged_two_stage_supported:
-            assert state._staged_two_stage_input_buf.numel() == staged_max_numel
+            assert state.two_stage.input.numel() == staged_max_numel
             assert (
-                state._staged_two_stage_scratch_buf.numel()
+                state.two_stage.scratch.numel()
                 == (staged_max_numel + world_size - 1) // world_size
             )
-            assert state._staged_two_stage_ready_flags.shape == (
+            assert state.two_stage.flags.shape == (
                 kernel_config.two_stage.max_programs,
                 world_size,
             )
         else:
-            assert state._staged_two_stage_input_buf is None
-            assert state._staged_two_stage_scratch_buf is None
-            assert state._staged_two_stage_ready_flags is None
-        assert state._reduced_output_buf.numel() == producer_direct_max_numel
+            assert state.two_stage.input is None
+            assert state.two_stage.scratch is None
+            assert state.two_stage.flags is None
+        assert state.producer.output.numel() == producer_direct_max_numel
         if attnres_max_numel:
-            assert state._attnres_push_inbox.shape == (
+            assert state.attnres.inbox.shape == (
                 2,
                 world_size,
                 attnres_max_numel,
             )
-            assert state._attnres_push_epochs.shape == (attnres_max_rows,)
-            assert state._attnres_push_ready_flags.shape == (
+            assert state.attnres.epochs.shape == (attnres_max_rows,)
+            assert state.attnres.flags.shape == (
                 2,
                 attnres_max_rows,
                 world_size,
@@ -598,7 +604,7 @@ def _ar_worker_main(rank: int, world_size: int, port: int) -> None:
                     world_size,
                     (1024,),
                     device,
-                    storage_offset=rank % 2,
+                    storage_offset=rank % 4,
                     safe=safe,
                 )
         if world_size == 4:
@@ -892,7 +898,7 @@ def _check_all_reduce_residual_attnres(state, rank: int, device) -> None:
         allreduce_residual_attnres_combine_supported,
     )
 
-    config = IRIS_ALL_REDUCE_KERNEL_CONFIG.kimi_k3_attnres
+    config = IRIS_ALL_REDUCE_KERNEL_CONFIG.attnres
     for num_tokens in (1, 2, 4, 8, 16):
         torch.manual_seed(101 + num_tokens)
         hidden = config.hidden_size

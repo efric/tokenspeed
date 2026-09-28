@@ -27,7 +27,7 @@ import torch.distributed as dist
 from tokenspeed_kernel.ops.gemm.fp8_utils import (
     create_per_token_group_quant_fp8_output_scale,
 )
-from tokenspeed_kernel.platform import current_platform
+from tokenspeed_kernel.platform import CapabilityRequirement, current_platform
 from tokenspeed_kernel.registry import ErrorClass, error_fn, register_kernel
 from tokenspeed_kernel.signature import format_signatures
 
@@ -1588,3 +1588,79 @@ if current_platform().is_nvidia:
             metadata=None,
         )
         return out
+
+
+# Semantic adapters keep the existing vendor arithmetic and result ownership.
+@register_kernel(
+    "communication",
+    "all_reduce_attnres",
+    name="trtllm_all_reduce_attnres",
+    solution="trtllm",
+    capability=CapabilityRequirement(vendors=frozenset({"nvidia"})),
+    signatures=format_signatures("input", "dense", {torch.bfloat16, torch.float16}),
+    traits={"implementation": frozenset({"trtllm_all_reduce_attnres"})},
+)
+def trtllm_all_reduce_attnres(state, partial, residual, epilogue):
+    hidden, updated = allreduce_residual_attnres_combine(
+        partial,
+        residual,
+        epilogue.score_projection,
+        epilogue.score_norm,
+        epilogue.output_weight,
+        scratch=epilogue.partials,
+        rank=state.rank,
+        group=state.group,
+        eps=epilogue.eps,
+        max_token_num=state.max_tokens,
+    )
+    return updated, hidden
+
+
+@register_kernel(
+    "communication",
+    "all_reduce_residual",
+    name="trtllm_all_reduce_residual",
+    solution="trtllm",
+    capability=CapabilityRequirement(vendors=frozenset({"nvidia"})),
+    signatures=format_signatures("input", "dense", {torch.bfloat16, torch.float16}),
+    traits={"implementation": frozenset({"trtllm_all_reduce_residual"})},
+)
+def trtllm_all_reduce_residual(state, partial, residual, epilogue):
+    result = allreduce_residual_rmsnorm(
+        input_tensor=partial,
+        residual=residual,
+        weight=state.unit_weight,
+        rank=state.rank,
+        group=state.group,
+        eps=1e-6,
+        max_token_num=state.max_tokens,
+        block_quant_fp8=False,
+        residual_reduce_scattered=False,
+        max_sm_to_use=None,
+        trigger_completion_at_end=False,
+        has_partial_norm_out=False,
+    )
+    if result[0] is not None:
+        return result[1], None
+    # Preserve the old ones-weight RMSNorm fallback and its BF16 residual add.
+    from tokenspeed_kernel.ops.layernorm import rmsnorm
+
+    _, updated = rmsnorm(partial, state.unit_weight, 1e-6, residual=residual)
+    return updated, None
+
+
+@register_kernel(
+    "communication",
+    "all_reduce_rmsnorm",
+    name="trtllm_all_reduce_rmsnorm_adapter",
+    solution="trtllm",
+    capability=CapabilityRequirement(vendors=frozenset({"nvidia"})),
+    signatures=format_signatures(
+        "input", "dense", {torch.bfloat16, torch.float16, torch.float32}
+    ),
+    traits={"implementation": frozenset({"trtllm_all_reduce_rmsnorm_adapter"})},
+)
+def trtllm_all_reduce_rmsnorm_adapter(**kwargs):
+    from tokenspeed_kernel.ops.communication.trtllm import allreduce_residual_rmsnorm
+
+    return allreduce_residual_rmsnorm(**kwargs)

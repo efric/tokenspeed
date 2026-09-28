@@ -4,14 +4,33 @@ from __future__ import annotations
 
 import torch
 import torch.distributed as dist
+from tokenspeed_kernel.ops.communication._all_reduce import (
+    DEFAULT_PRODUCER_DIRECT_MAX_BYTES,
+    acquire_symm_outputs,
+    all_reduce,
+    all_reduce_can_run,
+    all_reduce_capacity,
+    all_reduce_symm_can_run,
+    all_reduce_symmetric,
+    create_all_reduce_handle,
+    prepare_all_reduce_handle,
+    producer_all_reduce_available,
+    symm_outputs_can_run,
+)
+from tokenspeed_kernel.ops.communication._contracts import (
+    AllReducePreparation,
+    AllReduceRequirement,
+    PackedAllReduceRequirement,
+)
+from tokenspeed_kernel.ops.communication._residual import (
+    bind_residual_all_reduce,
+    prepare_residual_all_reduce,
+)
 from tokenspeed_kernel.ops.communication.trtllm import (
     allgather_dual_rmsnorm as _allgather_dual_rmsnorm,
 )
 from tokenspeed_kernel.ops.communication.trtllm import (
     allreduce_lane_latent_norm as _allreduce_lane_latent_norm,
-)
-from tokenspeed_kernel.ops.communication.trtllm import (
-    allreduce_residual_rmsnorm as _allreduce_residual_rmsnorm,
 )
 from tokenspeed_kernel.ops.communication.trtllm import (
     reducescatter_residual_rmsnorm as _reducescatter_residual_rmsnorm,
@@ -132,10 +151,16 @@ def allreduce_residual_rmsnorm(
     residual_reduce_scattered: bool = False,
     has_partial_norm_out: bool = False,
     max_sm_to_use: int | None = None,
+    *,
+    launch_with_pdl: bool | None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Run fused all-reduce, residual addition, and RMS normalization."""
 
-    return _allreduce_residual_rmsnorm(
+    from tokenspeed_kernel.ops.communication._rmsnorm import (
+        run_allreduce_residual_rmsnorm,
+    )
+
+    return run_allreduce_residual_rmsnorm(
         input_tensor=input_tensor,
         residual=residual,
         weight=weight,
@@ -150,7 +175,7 @@ def allreduce_residual_rmsnorm(
         residual_reduce_scattered=residual_reduce_scattered,
         has_partial_norm_out=has_partial_norm_out,
         max_sm_to_use=max_sm_to_use,
-        launch_with_pdl=pdl_enabled(),
+        launch_with_pdl=launch_with_pdl,
     )
 
 
@@ -226,6 +251,22 @@ def allgather_dual_rmsnorm(
 
 
 __all__ = [
+    "AllReducePreparation",
+    "AllReduceRequirement",
+    "PackedAllReduceRequirement",
+    "DEFAULT_PRODUCER_DIRECT_MAX_BYTES",
+    "acquire_symm_outputs",
+    "all_reduce",
+    "all_reduce_can_run",
+    "all_reduce_capacity",
+    "all_reduce_symm_can_run",
+    "all_reduce_symmetric",
+    "create_all_reduce_handle",
+    "prepare_all_reduce_handle",
+    "producer_all_reduce_available",
+    "symm_outputs_can_run",
+    "bind_residual_all_reduce",
+    "prepare_residual_all_reduce",
     "allgather_dual_rmsnorm",
     "allreduce_fusion_lane",
     "allreduce_lane_latent_norm",

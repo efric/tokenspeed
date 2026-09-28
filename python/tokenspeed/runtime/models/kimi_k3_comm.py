@@ -22,10 +22,9 @@
 routing for the sites where K3's AttnRes/latent-lane semantics bypass the
 generic ``CommManager`` (decision D4).
 
-Layering: this module owns *which backend runs where* (votes, workspace
-lifecycle, M-window routing); the kernels themselves stay behind
-``tokenspeed_kernel.ops.communication`` / ``ops.moe``. Model code
-(``kimi_k3.py``) states semantics only and never names a backend.
+Attention reduction describes residual semantics and group relationships;
+the kernel operation owns preparation, implementation selection and readiness.
+The existing MoE-tail negotiation remains here and calls kernel-package APIs.
 
 All M thresholds for the K3 tail live here (single source of truth):
 
@@ -34,8 +33,6 @@ decode fused tail       ``1 <= M <= latent-tail capacity``
                         (multicast tail, tp_ep spanning WORLD) — see
                         ``select_k3_moe_tail_tier``
 multimem AR window      ``MULTIMEM_AR_MIN_TOKENS..MAX`` (prefill)
-attention reduce        ``1 <= M <= ATTN_AR_MAX_TOKENS`` (tokenspeed
-                        CuteDSL collective, attn TP group)
 fused-lane one-shot     everything else with a fused plan
 ======================  =========================================
 """
@@ -49,7 +46,12 @@ from enum import IntEnum
 import torch
 import torch.distributed as dist
 from tokenspeed_kernel.ops.activation.triton import add3
-from tokenspeed_kernel.ops.communication import allreduce_fusion_lane
+from tokenspeed_kernel.ops.communication import (
+    allreduce_fusion_lane,
+    bind_residual_all_reduce,
+    prepare_residual_all_reduce,
+)
+from tokenspeed_kernel.ops.communication.cute import RESIDUAL_MAX_ROWS
 from tokenspeed_kernel.ops.communication.fabric import fabric_allocation_supported
 from tokenspeed_kernel.ops.communication.multimem import (
     multimem_all_reduce_staged,
@@ -59,11 +61,9 @@ from tokenspeed_kernel.ops.communication.multimem import (
 )
 from tokenspeed_kernel.ops.moe.latent_tail import (
     KimiK3LatentTailOp,
-    attn_reduce_shape_supported,
-    build_attn_reduce_collective,
     latent_tail_supported,
-    multicast_backend_available,
 )
+from tokenspeed_kernel.ops.residual.attnres import AttnResEpilogue
 from tokenspeed_kernel.platform import current_platform
 
 from tokenspeed.runtime.distributed.comm_ops import (
@@ -79,29 +79,11 @@ from tokenspeed.runtime.execution.forward_step import (
     get_is_cuda_graph_phase,
 )
 from tokenspeed.runtime.execution.workspace import workspace_pool
-from tokenspeed.runtime.layers.layernorm import RMSNorm, _get_process_group
+from tokenspeed.runtime.layers.layernorm import _get_process_group
 from tokenspeed.runtime.layers.moe.latent import kimi3_join_reduce_moe
 from tokenspeed.runtime.utils.env import global_server_args_dict
 
 logger = logging.getLogger(__name__)
-
-_IRIS_MAX_TOKENS = 8192
-_IRIS_BASELINE_PRODUCER_DIRECT_MAX_TOKENS = 48
-
-# Widest reduce this instance is built for; it becomes the collective's max_m.
-ATTN_AR_MAX_TOKENS = 8
-
-
-def attn_ar_eligible(
-    *, armed: bool, has_prefix: bool, num_tokens: int, fusion_max_tokens: int
-) -> bool:
-    """Whether the tokenspeed collective, not the vendor AR, serves this reduce.
-
-    ``fusion_max_tokens`` is the operator's window; it goes negative to forbid a
-    fused attention all-reduce outright, and this path is one.
-    """
-    window = min(ATTN_AR_MAX_TOKENS, fusion_max_tokens)
-    return armed and has_prefix and 0 < num_tokens <= window
 
 
 class K3MoETailTier(IntEnum):
@@ -204,68 +186,43 @@ def prepare_k3_all_reduce_buffers(
     routed_hidden_size: int,
     max_num_tokens: int,
 ) -> bool:
-    """Prepare the node-local AMD all-reduce buffers used by Kimi-K3."""
-    if not current_platform().is_cdna4:
-        return False
+    """Describe this layer's collective demands before cache planning."""
+    from tokenspeed_kernel.ops.communication import (
+        AllReducePreparation,
+        AllReduceRequirement,
+        PackedAllReduceRequirement,
+    )
+    from tokenspeed_kernel.ops.residual.attnres import AttnResRequirement
 
-    max_num_tokens = min(max_num_tokens, _IRIS_MAX_TOKENS)
     if max_num_tokens <= 0:
         return False
-
-    from tokenspeed_kernel.ops.communication.triton import (
-        allreduce_residual_attnres_max_tokens,
-    )
-
-    attnres_max_rows = min(
-        max_num_tokens,
-        allreduce_residual_attnres_max_tokens(mapping.attn.tp_size),
-    )
-    groups_are_equal = mapping.attn.tp_group == mapping.moe.tp_ep_group
-    # The Lamport crossover was measured with attention TP8 and MoE TP8.
-    enable_lamport = (
-        groups_are_equal
-        and mapping.attn.tp_size == 8
-        and mapping.moe.tp_size == 8
-        and mapping.moe.ep_size == 1
-    )
-    # Keep the full producer-direct window for equal TP8 groups. Its 50K/500
-    # C16 gain survives content-sensitive EAGLE3 trajectories; retain 48 tokens
-    # for other mappings.
-    expand_moe_window = (
-        groups_are_equal and mapping.attn.tp_size == 8 and mapping.moe.tp_ep_size == 8
-    )
-    producer_direct_max_tokens = (
-        max_num_tokens
-        if expand_moe_window
-        else min(max_num_tokens, _IRIS_BASELINE_PRODUCER_DIRECT_MAX_TOKENS)
-    )
-    prepared = False
+    groups = {}
     if mapping.attn.tp_size > 1:
-        prepared = prepare_all_reduce_buffers(
-            mapping.attn.tp_group,
-            staged_max_numel=max_num_tokens * hidden_size,
-            producer_direct_max_numel=(
-                producer_direct_max_tokens * (hidden_size + routed_hidden_size)
-                if groups_are_equal and mapping.moe.tp_ep_size > 1
-                else 0
-            ),
-            attnres_max_numel=attnres_max_rows * hidden_size,
-            attnres_max_rows=attnres_max_rows,
-            enable_lamport=enable_lamport,
-            dtype=torch.bfloat16,
-            backend=None,
+        groups[mapping.attn.tp_group] = [
+            AllReduceRequirement(max_rows=max_num_tokens, width=hidden_size),
+            AttnResRequirement(max_rows=max_num_tokens, width=hidden_size),
+        ]
+    if mapping.moe.tp_ep_size > 1:
+        operations = groups.setdefault(
+            mapping.moe.tp_ep_group,
+            [AllReduceRequirement(max_rows=max_num_tokens, width=hidden_size)],
         )
-    if mapping.moe.tp_ep_size > 1 and not groups_are_equal:
+        operations.append(
+            PackedAllReduceRequirement(
+                max_rows=max_num_tokens,
+                widths=(routed_hidden_size, hidden_size),
+                tensor_parallel_size=mapping.moe.tp_size,
+                expert_parallel_size=mapping.moe.ep_size,
+            )
+        )
+    prepared = False
+    for group, operations in groups.items():
         prepared = (
             prepare_all_reduce_buffers(
-                mapping.moe.tp_ep_group,
-                staged_max_numel=max_num_tokens * hidden_size,
-                producer_direct_max_numel=producer_direct_max_tokens
-                * (hidden_size + routed_hidden_size),
-                attnres_max_numel=0,
-                attnres_max_rows=0,
-                enable_lamport=False,
-                dtype=torch.bfloat16,
+                group,
+                preparation=AllReducePreparation(
+                    dtype=torch.bfloat16, operations=tuple(operations)
+                ),
                 backend=None,
             )
             or prepared
@@ -318,63 +275,31 @@ class K3AttnCommState:
     def __init__(self, *, mapping, hidden_size: int):
         self.mapping = mapping
         self.hidden_size = hidden_size
-        hidden = hidden_size
-        # --- attention AR+residual fusion arming (was per decoder layer) ---
-        # Fused AR+residual for the attention reduce: a ones-weight RMSNorm
-        # rides the one-shot pattern and its norm output is discarded.
-        self.attn_ar_fusion_ok = dist.is_initialized() and (
+        fusion_ok = dist.is_initialized() and (
             mapping.attn.tp_size > 1
-            and prepare_all_reduce_lane(mapping.attn.tp_group, hidden)
+            and prepare_all_reduce_lane(mapping.attn.tp_group, hidden_size)
             and prepare_all_reduce_fusion(
                 mapping.attn.tp_group,
-                hidden,
+                hidden_size,
                 max(int(global_server_args_dict["comm_fusion_max_num_tokens"]), 1),
             )
         )
-        # Plain attribute (not a registered submodule): the model loader
-        # never migrates it, so the device must be pinned explicitly here.
-        # The eps only shapes the discarded ones-weight norm output.
-        self.dummy_norm = RMSNorm(hidden, eps=1e-6)
-        self.dummy_norm.weight.data = torch.ones(
-            hidden,
-            dtype=torch.bfloat16,
+        self.reduction = prepare_residual_all_reduce(
+            group=(
+                _get_process_group(mapping.attn.tp_group)
+                if dist.is_initialized()
+                else None
+            ),
+            rank=mapping.attn.tp_rank,
+            local_world_size=mapping.nprocs_per_node,
+            width=hidden_size,
+            max_tokens=global_server_args_dict["comm_fusion_max_num_tokens"],
+            vendor_fusion=fusion_ok,
             device=torch.device("cuda", torch.cuda.current_device()),
         )
-        self.dummy_norm.weight.requires_grad_(False)
-
-        # A rank that skipped the build would strand its peers in the rendezvous.
-        self.cute_ar = None
-        if dist.is_initialized() and mapping.attn.tp_size > 1:
-            group = _get_process_group(mapping.attn.tp_group)
-            # Gate first: a forbidden window should not pay the rendezvous.
-            local_ok = (
-                attn_ar_eligible(
-                    armed=True,
-                    has_prefix=True,
-                    num_tokens=1,
-                    fusion_max_tokens=global_server_args_dict[
-                        "comm_fusion_max_num_tokens"
-                    ],
-                )
-                and self.attn_ar_fusion_ok
-                and multicast_backend_available(group)
-                and attn_reduce_shape_supported(
-                    tp_size=mapping.attn.tp_size, hidden_size=hidden
-                )
-            )
-            vote = torch.tensor([int(local_ok)], dtype=torch.int32, device="cuda")
-            dist.all_reduce(vote, op=dist.ReduceOp.MIN, group=group)
-            if bool(vote.item()):
-                self.cute_ar = build_attn_reduce_collective(
-                    group=group,
-                    rank=mapping.attn.tp_rank,
-                    tp_size=mapping.attn.tp_size,
-                    hidden_size=hidden,
-                    max_tokens=ATTN_AR_MAX_TOKENS,
-                )
         attention_reduce_backend = (
-            f"tokenspeed CuteDSL collective at M<={ATTN_AR_MAX_TOKENS}"
-            if self.cute_ar is not None
+            f"tokenspeed CuteDSL collective at M<={RESIDUAL_MAX_ROWS}"
+            if self.reduction.native is not None
             else "not armed; the existing backends serve every M"
         )
         logger.info(f"Kimi K3 attention reduce: {attention_reduce_backend}")
@@ -528,149 +453,50 @@ class K3AttnComm:
         self.state = state
         self.mapping = state.mapping
 
-    # ------------------------------------------------------------------
-    # Attention-side reduction, hoisted from KimiLinearDecoderLayer.
-    # ------------------------------------------------------------------
-    def fused_attnres_reduce_available(
-        self,
-        partial: torch.Tensor,
-        residual: torch.Tensor,
-        combine: tuple,
-        score_weight: torch.Tensor | None,
-    ) -> bool:
-        """Whether the communication path can consume the AttnRes epilogue."""
-        scratch, _, _, output_weight, _ = combine
-        if score_weight is None or output_weight is None:
-            return False
-        from tokenspeed_kernel.ops.communication.triton import (
-            allreduce_residual_attnres_combine_supported,
-        )
-
-        return not global_server_args_dict.get(
-            "force_deterministic_rsag", False
-        ) and allreduce_residual_attnres_combine_supported(
+    def bind_reduce(self, partial, residual, combine, score_weight):
+        """Bind once; scheduling uses the binding's partial-readiness contract."""
+        epilogue = None
+        if combine is not None:
+            scratch, projection, norm, output_weight, eps = combine
+            epilogue = AttnResEpilogue(
+                partials=scratch,
+                score_projection=projection,
+                score_norm=norm,
+                score_product=score_weight,
+                output_weight=output_weight,
+                eps=eps,
+            )
+        return bind_residual_all_reduce(
+            self.state.reduction,
             partial,
             residual,
-            score_weight,
-            output_weight,
-            scratch,
-            rank=self.mapping.attn.tp_rank,
-            group=_get_process_group(self.mapping.attn.tp_group),
-            local_world_size=self.mapping.nprocs_per_node,
+            epilogue,
+            force_deterministic=global_server_args_dict.get(
+                "force_deterministic_rsag", False
+            ),
         )
+
+    def fused_attnres_reduce_available(self, partial, residual, combine, score_weight):
+        binding = self.bind_reduce(partial, residual, combine, score_weight)
+        return binding is not None and binding.prefer_split_partials
+
+    def run_reduce(self, binding, partial, residual):
+        """Run the selected reduction, or compose the ordinary reduction."""
+        if binding is not None:
+            return binding(partial, residual)
+        reduced = all_reduce(partial, self.mapping.attn.tp_group)
+        return (reduced if residual is None else residual + reduced), None
 
     def attn_reduce(
         self,
-        attn_partial: torch.Tensor,
-        prefix_sum: torch.Tensor | None,
-        combine: tuple | None = None,
+        attn_partial,
+        prefix_sum,
+        combine=None,
         *,
-        mlp_wp: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        """All-reduce the attention partial and accumulate the residual.
-
-        Small batches fold the residual add into the one-shot AR kernel;
-        with ``combine = (scratch, res_w, rms_w, out_norm_w, eps)`` the
-        mlp-side AttnRes prefix combine also rides its epilogue and the mixed
-        hidden comes back as the second return (else None -- block-write
-        layers, large batches and the plain-reduce fallback).
-
-        The tokenspeed collective is the exception: it serves the narrow window
-        ahead of those branches and returns None for the mixed hidden even when
-        ``combine`` is set, so the caller runs the combine as its own kernel.
-        Measured net faster despite the extra launch at the width that
-        actually reaches it -- one token per step, where every layer but the
-        block-write ones arrives with a residual. Wider steps mostly take the
-        fused AttnRes graph instead, and the block-write layers that still
-        arrive pass no prefix: instrumented at eight tokens on a DSpark
-        deployment, this window was armed and served nothing. A layer that
-        declines the fused graph for some other reason does reach it with a
-        prefix, so that is a property of the configuration, not of the width.
-
-        Like the vendor branch below it, that window does not consult
-        ``force_deterministic_rsag``: the collective reduces in ascending rank
-        order with an fp32 accumulator, so it is already run-to-run stable.
-
-        ``mlp_wp`` is the calling layer's precomputed ``rms_w * res_w``
-        product (per-layer state, filled in post_load_weights); the B1
-        combine kernels consume it in place of the separate weights.
-        """
-        num_tokens = attn_partial.shape[0]
-        if attn_ar_eligible(
-            armed=self.state.cute_ar is not None,
-            has_prefix=prefix_sum is not None,
-            num_tokens=num_tokens,
-            fusion_max_tokens=global_server_args_dict["comm_fusion_max_num_tokens"],
-        ):
-            # Any later reduce in this process overwrites it; this layer is done by then.
-            residual_out, _ = self.state.cute_ar(
-                attn_partial,
-                prefix_sum,
-                self.state.dummy_norm.weight,
-                include_reduce_scatter=False,
-                include_routed=True,
-            )
-            return residual_out, None
-        if (
-            prefix_sum is not None
-            and self.state.attn_ar_fusion_ok
-            and 0 < num_tokens
-            and num_tokens <= global_server_args_dict["comm_fusion_max_num_tokens"]
-        ):
-            if combine is not None:
-                from tokenspeed_kernel.ops.communication.trtllm import (
-                    allreduce_residual_attnres_combine,
-                )
-
-                scratch, res_w, rms_w, out_norm_w, eps = combine
-                h, residual_out = allreduce_residual_attnres_combine(
-                    attn_partial,
-                    prefix_sum,
-                    res_w,
-                    rms_w,
-                    out_norm_w,
-                    scratch=scratch,
-                    rank=self.mapping.attn.tp_rank,
-                    group=_get_process_group(self.mapping.attn.tp_group),
-                    eps=eps,
-                    max_token_num=global_server_args_dict["comm_fusion_max_num_tokens"],
-                )
-                return residual_out, h
-            _, residual_out, *_ = self.state.dummy_norm.forward_with_allreduce_fusion(
-                self.mapping.attn.tp_rank,
-                self.mapping.attn.tp_group,
-                attn_partial,
-                prefix_sum,
-            )
-            if residual_out is not None:
-                return residual_out, None
-        if combine is not None and prefix_sum is not None and num_tokens > 0:
-            scratch, _, _, out_norm_w, eps = combine
-            if out_norm_w is not None and self.fused_attnres_reduce_available(
-                attn_partial,
-                prefix_sum,
-                combine,
-                mlp_wp,
-            ):
-                from tokenspeed_kernel.ops.communication.triton import (
-                    allreduce_residual_attnres_combine,
-                )
-
-                group = _get_process_group(self.mapping.attn.tp_group)
-                h, residual_out = allreduce_residual_attnres_combine(
-                    attn_partial,
-                    prefix_sum,
-                    mlp_wp,
-                    out_norm_w,
-                    scratch,
-                    rank=self.mapping.attn.tp_rank,
-                    group=group,
-                    local_world_size=self.mapping.nprocs_per_node,
-                    eps=eps,
-                )
-                return residual_out, h
-        reduced = all_reduce(attn_partial, self.mapping.attn.tp_group)
-        return (reduced if prefix_sum is None else prefix_sum + reduced), None
+        mlp_wp=None,
+    ):
+        binding = self.bind_reduce(attn_partial, prefix_sum, combine, mlp_wp)
+        return self.run_reduce(binding, attn_partial, prefix_sum)
 
 
 @dataclass

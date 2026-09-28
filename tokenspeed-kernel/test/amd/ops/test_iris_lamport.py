@@ -43,15 +43,15 @@ def _require_iris():
 @pytest.mark.parametrize("rows", range(1, 9))
 @pytest.mark.parametrize("reverse", (False, True))
 def test_lamport_boundary(rows, reverse):
-    from tokenspeed_kernel.ops.communication.iris import (
-        _kimi_k3_moe_producer_direct_protocol,
+    from tokenspeed_kernel.ops.communication._iris.policy import (
+        _packed_producer_direct_protocol,
     )
 
     shapes = ((rows, 3584), (rows, 7168))
     if reverse:
         shapes = shapes[::-1]
     expected = "lamport" if rows <= 6 else None
-    assert _kimi_k3_moe_producer_direct_protocol(8, shapes, torch.bfloat16) == expected
+    assert _packed_producer_direct_protocol(8, shapes, torch.bfloat16) == expected
 
 
 @pytest.mark.parametrize(
@@ -69,11 +69,11 @@ def test_lamport_boundary(rows, reverse):
     ],
 )
 def test_lamport_rejects_other_payloads(world, shapes, dtype):
-    from tokenspeed_kernel.ops.communication.iris import (
-        _kimi_k3_moe_producer_direct_protocol,
+    from tokenspeed_kernel.ops.communication._iris.policy import (
+        _packed_producer_direct_protocol,
     )
 
-    assert _kimi_k3_moe_producer_direct_protocol(world, shapes, dtype) is None
+    assert _packed_producer_direct_protocol(world, shapes, dtype) is None
 
 
 @pytest.mark.parametrize("enable_lamport", [False, True])
@@ -81,8 +81,9 @@ def test_lamport_rejects_other_payloads(world, shapes, dtype):
 @pytest.mark.parametrize("reverse", [False, True])
 def test_lamport_dispatch_requires_opt_in(monkeypatch, enable_lamport, rows, reverse):
     from tokenspeed_kernel.ops.communication import iris as iris_ops
+    from tokenspeed_kernel.ops.communication._iris import all_reduce as iris_impl
 
-    monkeypatch.setattr(iris_ops, "_platform", SimpleNamespace(is_cdna4=True))
+    monkeypatch.setattr(iris_impl, "_platform", SimpleNamespace(is_cdna4=True))
     state = iris_ops.IrisAllReduce.__new__(iris_ops.IrisAllReduce)
     state.world_size = 8
     state.dtype = torch.bfloat16
@@ -93,8 +94,9 @@ def test_lamport_dispatch_requires_opt_in(monkeypatch, enable_lamport, rows, rev
         state._kernel_config.packed_word_bytes // state.dtype.itemsize
     )
     state.producer_direct_max_numel = rows * 10752
-    state._input_buf = torch.empty(rows * 10752, dtype=state.dtype)
-    state._reduced_output_buf = torch.empty_like(state._input_buf)
+    state.producer = SimpleNamespace()
+    state.producer.input = torch.empty(rows * 10752, dtype=state.dtype)
+    state.producer.output = torch.empty_like(state.producer.input)
     state._all_reduce_symmetric_lamport = Mock()
     state._all_reduce_symmetric_pull = Mock()
     shapes = ((rows, 3584), (rows, 7168))
@@ -122,7 +124,7 @@ def test_lamport_buffer_polling_codegen(rank, tmp_path):
     behavior in addition to the distributed numerical tests.
     """
     from tokenspeed_kernel._triton import gluon, triton
-    from tokenspeed_kernel.ops.communication.iris import (
+    from tokenspeed_kernel_amd.ops.gfx950.communication.all_reduce import (
         lamport_all_reduce_bf16,
     )
 
@@ -199,8 +201,8 @@ def _check_lamport_state(rank, device):
     )
 
     state = _new_state(rank, device, 8 * 10752, torch.bfloat16)
-    region = state._kimi_k3_moe_lamport_region
-    epochs = state._kimi_k3_moe_lamport_epochs
+    region = state.lamport.region
+    epochs = state.lamport.epochs
     assert region.shape == (3, 8, 6 * 10752)
     assert epochs.shape == (126,)
     assert state._producer_direct_max_programs == 84
@@ -259,7 +261,7 @@ def _check_lamport_state(rank, device):
         captures.append((rows, graph, sources, outputs))
     snapshots = []
     before_epochs = epochs.clone()
-    pointers = (region.data_ptr(), epochs.data_ptr(), state._input_buf.data_ptr())
+    pointers = (region.data_ptr(), epochs.data_ptr(), state.producer.input.data_ptr())
     for iteration in range(12):
         for rows, graph, sources, outputs in captures:
             scale = iteration + 1
@@ -273,7 +275,7 @@ def _check_lamport_state(rank, device):
     assert pointers == (
         region.data_ptr(),
         epochs.data_ptr(),
-        state._input_buf.data_ptr(),
+        state.producer.input.data_ptr(),
     )
     torch.testing.assert_close(epochs, before_epochs, atol=0, rtol=0)
     for scale, outputs in snapshots:
@@ -289,7 +291,7 @@ def _check_lamport_state(rank, device):
         (32257, 32256),
     ):
         smaller = _new_state(rank, device, capacity, torch.bfloat16)
-        assert smaller._kimi_k3_moe_lamport_max_numel == expected_capacity
+        assert smaller._lamport_max_numel == expected_capacity
         if expected_capacity:
             inputs = iris_acquire_outputs(smaller, ((1, 3584), (1, 7168)))
             for tensor in inputs:
@@ -299,11 +301,11 @@ def _check_lamport_state(rank, device):
                     output, torch.full_like(output, 36), atol=0, rtol=0
                 )
         else:
-            assert smaller._kimi_k3_moe_lamport_region is None
-            assert smaller._kimi_k3_moe_lamport_epochs is None
+            assert smaller.lamport.region is None
+            assert smaller.lamport.epochs is None
     for dtype in (torch.float16, torch.float32):
         other = _new_state(rank, device, 10752, dtype)
-        assert other._kimi_k3_moe_lamport_region is None
+        assert other.lamport.region is None
         inputs = iris_acquire_outputs(other, ((1, 3584), (1, 7168)))
         for tensor in inputs:
             tensor.fill_(rank + 1)

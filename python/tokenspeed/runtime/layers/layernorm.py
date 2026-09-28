@@ -22,16 +22,11 @@
 
 import torch
 import torch.nn as nn
-from tokenspeed_kernel.ops.communication.triton import (
-    allreduce_residual_rmsnorm as triton_allreduce_residual_rmsnorm,
+from tokenspeed_kernel.ops.communication import (
+    allreduce_residual_rmsnorm as _allreduce_residual_rmsnorm,
 )
 from tokenspeed_kernel.ops.communication.trtllm import (
     allgather_dual_rmsnorm,
-)
-from tokenspeed_kernel.ops.communication.trtllm import (
-    allreduce_residual_rmsnorm as trtllm_allreduce_residual_rmsnorm,
-)
-from tokenspeed_kernel.ops.communication.trtllm import (
     reducescatter_residual_rmsnorm,
 )
 from tokenspeed_kernel.ops.layernorm import rmsnorm
@@ -49,31 +44,11 @@ _platform = current_platform()
 _is_amd = _platform.is_amd
 
 
-def _torch_allreduce_residual_rmsnorm(
-    *,
-    input_tensor: torch.Tensor,
-    residual: torch.Tensor,
-    weight: torch.Tensor,
-    group,
-    eps: float,
-    **_,
-) -> tuple[torch.Tensor, torch.Tensor, None]:
-    torch.distributed.all_reduce(input_tensor, group=group)
-    output, updated_residual = rmsnorm(
-        input_tensor,
-        weight,
-        eps,
-        residual=residual,
-    )
-    return output, updated_residual, None
-
-
 if _is_amd:
     from tokenspeed_kernel.ops.layernorm.triton import (
         rmsnorm_fused_parallel as triton_rmsnorm_fused_parallel,
     )
 
-    _allreduce_residual_rmsnorm = triton_allreduce_residual_rmsnorm
 elif _platform.is_nvidia:
     from tokenspeed_kernel.ops.layernorm.cuda import rmsnorm_fused_parallel
     from tokenspeed_kernel.ops.layernorm.flashinfer import (
@@ -81,10 +56,6 @@ elif _platform.is_nvidia:
         gemma_rmsnorm,
         layernorm,
     )
-
-    _allreduce_residual_rmsnorm = trtllm_allreduce_residual_rmsnorm
-else:
-    _allreduce_residual_rmsnorm = _torch_allreduce_residual_rmsnorm
 
 
 logger = get_colorful_logger(__name__)
@@ -179,6 +150,7 @@ class RMSNorm(torch.nn.Module):
                     max_sm_to_use=max_sm_to_use,
                     trigger_completion_at_end=trigger_completion_at_end,
                     has_partial_norm_out=has_partial_norm_out,
+                    launch_with_pdl=None,
                 )
                 if fused_result[0] is not None:
                     return fused_result
@@ -324,6 +296,7 @@ class GemmaRMSNorm(torch.nn.Module):
                     max_sm_to_use=max_sm_to_use,
                     trigger_completion_at_end=trigger_completion_at_end,
                     has_partial_norm_out=has_partial_norm_out,
+                    launch_with_pdl=None,
                 )
                 if fused_result[0] is not None:
                     return fused_result

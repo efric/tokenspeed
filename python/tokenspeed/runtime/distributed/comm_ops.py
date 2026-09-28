@@ -30,6 +30,7 @@ from enum import IntEnum
 import torch
 import torch.distributed
 from tokenspeed_kernel.ops.communication import (
+    AllReducePreparation,
     allgather_dual_rmsnorm,
 )
 from tokenspeed_kernel.ops.communication import (
@@ -44,6 +45,7 @@ from tokenspeed_kernel.ops.communication import (
 from tokenspeed_kernel.ops.communication import (
     reducescatter_residual_rmsnorm,
 )
+from tokenspeed_kernel.platform import pdl_enabled
 
 from tokenspeed.runtime.distributed.comm_backend import (
     CommBackend,
@@ -155,41 +157,22 @@ def prepare_all_reduce_lane(
 def prepare_all_reduce_buffers(
     group: Group,
     *,
-    staged_max_numel: int,
-    producer_direct_max_numel: int,
-    attnres_max_numel: int,
-    attnres_max_rows: int,
-    enable_lamport: bool,
-    dtype: torch.dtype,
+    preparation: AllReducePreparation,
     backend: CommBackend | None,
 ) -> bool:
-    """Ask the active backend to allocate all-reduce buffers before cache planning.
+    """Prepare operation demands through the active communication backend.
 
     Args:
-        group: Global ranks participating in the reductions.
-        staged_max_numel: Maximum ordinary all-reduce payload in elements.
-        producer_direct_max_numel: Maximum producer-direct payload in elements.
-        attnres_max_numel: Maximum fused AttnRes payload in elements.
-        attnres_max_rows: Maximum fused AttnRes payload in rows.
-        enable_lamport: Allow Lamport for eligible producer-direct payloads.
-        dtype: Element type shared by the prepared paths.
-        backend: Backend to prepare, or ``None`` to use the global backend.
+        group: Participating global ranks.
+        preparation: Kernel-owned semantic demands; identical across the group.
+        backend: Explicit backend, or None to use the global backend.
 
     Returns:
-        Whether the active backend prepared the requested buffers.
+        Whether the backend prepared storage for these demands.
     """
-
     if backend is None:
         backend = get_global_backend()
-    return backend.prepare_all_reduce_buffers(
-        group,
-        staged_max_numel=staged_max_numel,
-        producer_direct_max_numel=producer_direct_max_numel,
-        attnres_max_numel=attnres_max_numel,
-        attnres_max_rows=attnres_max_rows,
-        enable_lamport=enable_lamport,
-        dtype=dtype,
-    )
+    return backend.prepare_all_reduce_buffers(group, preparation=preparation)
 
 
 def prepare_all_reduce_fusion(
@@ -354,6 +337,7 @@ def fused_all_reduce(
             has_partial_norm_out=fusion_params.has_partial_norm_out,
             trigger_completion_at_end=fusion_params.trigger_completion_at_end,
             max_sm_to_use=fusion_params.max_sm_to_use,
+            launch_with_pdl=pdl_enabled(),
         )
 
     raise ValueError(

@@ -26,16 +26,20 @@ back to NCCL.
 """
 
 import torch
+from tokenspeed_kernel.ops.communication import (
+    DEFAULT_PRODUCER_DIRECT_MAX_BYTES,
+    AllReducePreparation,
+)
 from tokenspeed_kernel.platform import current_platform
 
 from tokenspeed.runtime.distributed.comm_backend.base import (
     CommBackend,
     Group,
 )
-from tokenspeed.runtime.distributed.comm_backend.nccl import NcclBackend
-from tokenspeed.runtime.distributed.comm_backend.triton_allreduce import (
-    TritonAllReduceBackend,
+from tokenspeed.runtime.distributed.comm_backend.kernel_allreduce import (
+    KernelAllReduceBackend,
 )
+from tokenspeed.runtime.distributed.comm_backend.nccl import NcclBackend
 from tokenspeed.runtime.distributed.comm_backend.triton_rsag import TritonRSAGBackend
 from tokenspeed.runtime.distributed.comm_backend.trtllm_allreduce import (
     MAX_ONESHOT_BYTES,
@@ -63,7 +67,10 @@ class AutoBackend(CommBackend):
     def __init__(self):
         self._nccl = NcclBackend()
         self._trtllm_ar = TrtllmAllReduceBackend(fallback=self._nccl)
-        self._triton_ar = TritonAllReduceBackend(fallback=self._nccl)
+        self._kernel_ar = KernelAllReduceBackend(
+            fallback=self._nccl,
+            producer_direct_max_bytes=DEFAULT_PRODUCER_DIRECT_MAX_BYTES,
+        )
         self._rsag = TritonRSAGBackend(fallback=self._nccl)
 
     @property
@@ -235,9 +242,9 @@ class AutoBackend(CommBackend):
             if (
                 not use_nccl
                 and current_platform().is_amd
-                and self._triton_ar.can_reduce_outputs(tensors, group, op=op)
+                and self._kernel_ar.can_reduce_outputs(tensors, group, op=op)
             ):
-                return self._triton_ar.all_reduce(tensors, group, op=op)
+                return self._kernel_ar.all_reduce(tensors, group, op=op)
             # Collections past the one-shot window are headed for NCCL;
             # grouping avoids the copy required to concatenate them first.
             use_nccl = use_nccl or all(
@@ -247,12 +254,15 @@ class AutoBackend(CommBackend):
             use_nccl = use_nccl or (
                 current_platform().is_amd
                 and sum(value.numel() * value.element_size() for value in tensors)
-                > self._triton_ar.producer_direct_max_bytes
+                > self._kernel_ar.producer_direct_max_bytes
             )
             if use_nccl and len(tensors) == 2:
                 return self._nccl.all_reduce_two(*tensors, group, op=op)
             return super().all_reduce(tensors, group, op=op)
 
+        return self._all_reduce_tensor(tensor, group, op)
+
+    def _all_reduce_tensor(self, tensor, group, op):
         # AR backend dispatch -- first match wins. This is Tier 1 (which
         # backend); the trtllm backend then runs Tier 2 (mnnvl vs IPC, by
         # payload bytes) inside _ar_fusion_workspace.
@@ -273,8 +283,8 @@ class AutoBackend(CommBackend):
             return self._trtllm_ar.all_reduce(tensor, group, op=op)
         if spans_nodes:
             return self._nccl.all_reduce(tensor, group, op=op)
-        if self._triton_ar.can_run(tensor, group, op=op):
-            return self._triton_ar.all_reduce(tensor, group, op=op)
+        if self._kernel_ar.can_run(tensor, group, op=op):
+            return self._kernel_ar.all_reduce(tensor, group, op=op)
         return self._nccl.all_reduce(tensor, group, op=op)
 
     def prepare_all_reduce_lane(self, group: Group, hidden_dim: int) -> bool:
@@ -284,12 +294,7 @@ class AutoBackend(CommBackend):
         self,
         group: Group,
         *,
-        staged_max_numel: int,
-        producer_direct_max_numel: int,
-        attnres_max_numel: int,
-        attnres_max_rows: int,
-        enable_lamport: bool,
-        dtype: torch.dtype,
+        preparation: AllReducePreparation,
     ) -> bool:
         if (
             not current_platform().is_amd
@@ -298,14 +303,9 @@ class AutoBackend(CommBackend):
             or self._trtllm_ar.has_trtllm_ar(group)
         ):
             return False
-        return self._triton_ar.prepare_all_reduce_buffers(
+        return self._kernel_ar.prepare_all_reduce_buffers(
             group,
-            staged_max_numel=staged_max_numel,
-            producer_direct_max_numel=producer_direct_max_numel,
-            attnres_max_numel=attnres_max_numel,
-            attnres_max_rows=attnres_max_rows,
-            enable_lamport=enable_lamport,
-            dtype=dtype,
+            preparation=preparation,
         )
 
     def can_acquire_all_reduce_outputs(
@@ -328,8 +328,8 @@ class AutoBackend(CommBackend):
         ):
             return False
         if current_platform().is_amd:
-            return self._triton_ar.can_acquire_outputs(shapes, like, group, op=op)
-        return self._triton_ar.can_acquire_all_reduce_outputs(
+            return self._kernel_ar.can_acquire_outputs(shapes, like, group, op=op)
+        return self._kernel_ar.can_acquire_all_reduce_outputs(
             shapes, like, group, op=op
         )
 
@@ -347,14 +347,14 @@ class AutoBackend(CommBackend):
             or self._trtllm_ar.has_trtllm_ar(group)
         ):
             return super().acquire_all_reduce_outputs(shapes, like, group, op=op)
-        if current_platform().is_amd and not self._triton_ar.can_acquire_outputs(
+        if current_platform().is_amd and not self._kernel_ar.can_acquire_outputs(
             shapes,
             like,
             group,
             op=op,
         ):
             return super().acquire_all_reduce_outputs(shapes, like, group, op=op)
-        return self._triton_ar.acquire_all_reduce_outputs(
+        return self._kernel_ar.acquire_all_reduce_outputs(
             shapes,
             like,
             group,

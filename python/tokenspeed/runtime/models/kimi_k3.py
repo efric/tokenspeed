@@ -63,7 +63,6 @@ import torch
 import torch.nn.functional as F
 from tokenspeed_kernel import fp8_linear
 from tokenspeed_kernel.ops.activation.triton import (
-    attnres_combine,
     attnres_partial,
     attnres_partial_dual,
     rmsnorm_gated_sigmoid,
@@ -90,6 +89,7 @@ from tokenspeed_kernel.ops.moe import (
 from tokenspeed_kernel.ops.moe.latent_down import KimiK3LatentDownOp
 from tokenspeed_kernel.ops.quantization.flashinfer import fp4_quantize
 from tokenspeed_kernel.ops.residual import attn_res_fwd, attn_res_fwd_available
+from tokenspeed_kernel.ops.residual.attnres import attnres_combine
 from tokenspeed_kernel.ops.tuning import load_packaged_flashinfer_tuning_cache
 from tokenspeed_kernel.platform import current_platform, pdl_enabled
 from torch import nn
@@ -2560,6 +2560,7 @@ class KimiLinearDecoderLayer(nn.Module):
                 self.self_attention_res_norm.variance_epsilon,
                 _sliced_scratch(prefix_sum, 1, n_tok),
                 torch.empty_like(prefix_sum),
+                enable_pdl=None,
             )
         else:
             h = _apply_attn_res(
@@ -2796,25 +2797,6 @@ class KimiLinearDecoderLayer(nn.Module):
             )
             if self.self_attn.can_fuse_attnres_partials(h, candidate_args):
                 attnres_partial_args = candidate_args
-        reduce_consumes_scratch = (
-            own_mlp
-            and ar_combine is not None
-            and prefix_sum is not None
-            and (
-                num_tokens == 1
-                or (
-                    self.k3_comm.state.attn_ar_fusion_ok
-                    and num_tokens
-                    <= global_server_args_dict["comm_fusion_max_num_tokens"]
-                )
-                or self.k3_comm.fused_attnres_reduce_available(
-                    h,
-                    prefix_sum,
-                    ar_combine,
-                    self._mlp_wp,
-                )
-            )
-        )
         with self.attn_fork.scope(
             enable=(
                 get_is_capture_mode()
@@ -2856,13 +2838,26 @@ class KimiLinearDecoderLayer(nn.Module):
                 comm_manager=self.comm_manager,
                 attnres_partial_args=attnres_partial_args,
             )
+            reduction = self.k3_comm.bind_reduce(
+                attn_out,
+                prefix_sum,
+                ar_combine,
+                self._mlp_wp,
+            )
+            reduce_consumes_scratch = (
+                own_mlp and reduction is not None and reduction.consumes_partials
+            )
             if not reduce_consumes_scratch:
-                prefix_sum, h_fused = self._reduce_attn_accumulate(
-                    attn_out, prefix_sum, combine=ar_combine
+                prefix_sum, h_fused = self.k3_comm.run_reduce(
+                    reduction,
+                    attn_out,
+                    prefix_sum,
                 )
         if reduce_consumes_scratch:
-            prefix_sum, h_fused = self._reduce_attn_accumulate(
-                attn_out, prefix_sum, combine=ar_combine
+            prefix_sum, h_fused = self.k3_comm.run_reduce(
+                reduction,
+                attn_out,
+                prefix_sum,
             )
         # --- mlp: AttnRes mixing -> norm -> FFN -> accumulate ---
         if h_fused is not None:
@@ -2875,6 +2870,7 @@ class KimiLinearDecoderLayer(nn.Module):
                 self.mlp_res_norm.variance_epsilon,
                 scratch,
                 torch.empty_like(prefix_sum),
+                enable_pdl=None,
             )
         else:
             h = _apply_attn_res(

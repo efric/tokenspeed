@@ -23,6 +23,7 @@
 from abc import ABC, abstractmethod
 
 import torch
+from tokenspeed_kernel.ops.communication import AllReducePreparation
 
 from tokenspeed.runtime.distributed.mapping import Group
 
@@ -60,12 +61,7 @@ class CommBackend(ABC):
         self,
         group: Group,
         *,
-        staged_max_numel: int,
-        producer_direct_max_numel: int,
-        attnres_max_numel: int,
-        attnres_max_rows: int,
-        enable_lamport: bool,
-        dtype: torch.dtype,
+        preparation: AllReducePreparation,
     ) -> bool:
         """Return false when the backend has no persistent buffers to prepare."""
 

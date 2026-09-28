@@ -543,3 +543,24 @@ weights:
 The row tile is resolved from the gathered row count and expert count unless
 the caller pins it. Ragged M and N edges are masked rather than peeled, so a
 trailing partial tile loads only the rows that exist.
+
+## gfx950 communication
+
+`gfx950/communication/all_reduce.py` contains packed pull one-stage/two-stage
+all-reduce and BF16 Lamport. `attnres.py` contains the fused push/pull AttnRes
+device implementations; the production host adapter selects push. Shared packing
+and synchronization helpers live in `_common.py`.
+
+These kernels accept prepared device pointers, group-ordered heap bases and
+explicit rank/geometry constants. They do not create process groups, allocate
+symmetric storage, import Iris, or depend on `tokenspeed_kernel`. The Iris host
+solution in the kernel package owns those responsibilities and measured policy.
+
+Packed output requires 8-byte alignment and whole-word partitions. Two-stage
+staged reduction uses an exit barrier; producer-direct two-stage preserves its
+existing caller ordering contract. Lamport has three generations and normalizes
+negative zero before publishing sentinel-protected packs. AttnRes preserves its
+BF16 intermediate rounding boundaries. Launch metadata exposes kernel names for
+Proton without reading device data. AMD correctness and graph tests reside in
+`tokenspeed-kernel/test/amd/ops/test_iris_communication.py` and
+`test_iris_lamport.py`.

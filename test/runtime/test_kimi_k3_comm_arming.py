@@ -38,6 +38,12 @@ from unittest.mock import Mock, call
 
 import pytest
 import torch
+from tokenspeed_kernel.ops.communication.cute import (
+    RESIDUAL_MAX_ROWS as ATTN_AR_MAX_TOKENS,
+)
+from tokenspeed_kernel.ops.communication.cute import (
+    residual_collective_eligible as attn_ar_eligible,
+)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ci_system.ci_register import register_cuda_ci  # noqa: E402
@@ -50,9 +56,7 @@ needs_iris = pytest.mark.skipif(
 )
 
 from tokenspeed.runtime.models.kimi_k3_comm import (  # noqa: E402
-    ATTN_AR_MAX_TOKENS,
     _tail_finalize_top_k,
-    attn_ar_eligible,
 )
 
 
@@ -70,6 +74,38 @@ def test_arming_requires_fused_moe_ar():
     plan = SimpleNamespace(fused_moe_ar=False, use_trtllm=True)
     assert _tail_finalize_top_k(10, plan, True) is None
     assert _tail_finalize_top_k(10, plan, False) is None
+
+
+def _resolved_capacity(request):
+    from tokenspeed_kernel.ops.communication._iris.policy import resolve_capacities
+
+    return resolve_capacities(
+        request.kwargs["preparation"], len(request.args[0]), 1024 * 1024
+    )
+
+
+def _assert_prepared_once(prepare, group, **expected):
+    prepare.assert_called_once()
+    _assert_prepared_list(prepare, [call(group, **expected)])
+
+
+def _assert_prepared_list(prepare, expected):
+    assert len(prepare.call_args_list) == len(expected)
+    for actual, old in zip(prepare.call_args_list, expected):
+        assert actual.args == old.args
+        capacity = _resolved_capacity(actual)
+        assert capacity.staged_max_numel == min(
+            old.kwargs["staged_max_numel"], 512 * 1024 // 2
+        )
+        assert (
+            capacity.producer_direct_max_numel
+            == old.kwargs["producer_direct_max_numel"]
+        )
+        assert capacity.attnres_max_numel == old.kwargs["attnres_max_numel"]
+        assert capacity.attnres_max_rows == old.kwargs["attnres_max_rows"]
+        assert capacity.enable_lamport == old.kwargs["enable_lamport"]
+        assert actual.kwargs["preparation"].dtype == old.kwargs["dtype"]
+        assert actual.kwargs["backend"] is None
 
 
 @needs_iris
@@ -95,7 +131,8 @@ def test_iris_preparation_caps_attnres_for_equal_tp8_groups(monkeypatch):
         routed_hidden_size=3584,
         max_num_tokens=16384,
     )
-    prepare.assert_called_once_with(
+    _assert_prepared_once(
+        prepare,
         group,
         staged_max_numel=8192 * 7168,
         producer_direct_max_numel=8192 * (7168 + 3584),
@@ -115,7 +152,7 @@ def test_iris_preparation_handles_distinct_groups(monkeypatch):
     moe_group = tuple(range(8))
     mapping = SimpleNamespace(
         attn=SimpleNamespace(tp_size=4, tp_group=attn_group),
-        moe=SimpleNamespace(tp_ep_size=8, tp_ep_group=moe_group),
+        moe=SimpleNamespace(tp_size=8, ep_size=1, tp_ep_size=8, tp_ep_group=moe_group),
     )
     prepare = Mock(return_value=True)
     monkeypatch.setattr(
@@ -131,28 +168,31 @@ def test_iris_preparation_handles_distinct_groups(monkeypatch):
         routed_hidden_size=3584,
         max_num_tokens=8192,
     )
-    assert prepare.call_args_list == [
-        call(
-            attn_group,
-            staged_max_numel=8192 * 7168,
-            producer_direct_max_numel=0,
-            attnres_max_numel=0,
-            attnres_max_rows=0,
-            enable_lamport=False,
-            dtype=torch.bfloat16,
-            backend=None,
-        ),
-        call(
-            moe_group,
-            staged_max_numel=8192 * 7168,
-            producer_direct_max_numel=48 * (7168 + 3584),
-            attnres_max_numel=0,
-            attnres_max_rows=0,
-            enable_lamport=False,
-            dtype=torch.bfloat16,
-            backend=None,
-        ),
-    ]
+    _assert_prepared_list(
+        prepare,
+        [
+            call(
+                attn_group,
+                staged_max_numel=8192 * 7168,
+                producer_direct_max_numel=0,
+                attnres_max_numel=0,
+                attnres_max_rows=0,
+                enable_lamport=False,
+                dtype=torch.bfloat16,
+                backend=None,
+            ),
+            call(
+                moe_group,
+                staged_max_numel=8192 * 7168,
+                producer_direct_max_numel=48 * (7168 + 3584),
+                attnres_max_numel=0,
+                attnres_max_rows=0,
+                enable_lamport=False,
+                dtype=torch.bfloat16,
+                backend=None,
+            ),
+        ],
+    )
 
 
 @needs_iris
@@ -163,7 +203,7 @@ def test_iris_preparation_handles_moe_only_group(monkeypatch):
     moe_group = tuple(range(8))
     mapping = SimpleNamespace(
         attn=SimpleNamespace(tp_size=1, tp_group=attn_group),
-        moe=SimpleNamespace(tp_ep_size=8, tp_ep_group=moe_group),
+        moe=SimpleNamespace(tp_size=8, ep_size=1, tp_ep_size=8, tp_ep_group=moe_group),
     )
     prepare = Mock(return_value=True)
     monkeypatch.setattr(
@@ -179,7 +219,8 @@ def test_iris_preparation_handles_moe_only_group(monkeypatch):
         routed_hidden_size=3584,
         max_num_tokens=8192,
     )
-    prepare.assert_called_once_with(
+    _assert_prepared_once(
+        prepare,
         moe_group,
         staged_max_numel=8192 * 7168,
         producer_direct_max_numel=48 * (7168 + 3584),
@@ -198,7 +239,7 @@ def test_iris_preparation_keeps_baseline_window_for_equal_tp4(monkeypatch):
     group = tuple(range(4))
     mapping = SimpleNamespace(
         attn=SimpleNamespace(tp_size=4, tp_group=group),
-        moe=SimpleNamespace(tp_ep_size=4, tp_ep_group=group),
+        moe=SimpleNamespace(tp_size=4, ep_size=1, tp_ep_size=4, tp_ep_group=group),
     )
     prepare = Mock(return_value=True)
     monkeypatch.setattr(
@@ -214,7 +255,8 @@ def test_iris_preparation_keeps_baseline_window_for_equal_tp4(monkeypatch):
         routed_hidden_size=3584,
         max_num_tokens=8192,
     )
-    prepare.assert_called_once_with(
+    _assert_prepared_once(
+        prepare,
         group,
         staged_max_numel=8192 * 7168,
         producer_direct_max_numel=48 * (7168 + 3584),
@@ -269,14 +311,14 @@ def test_iris_lamport_requires_attention_and_moe_tp8(
 
         assert prepare.called
         for request in prepare.call_args_list:
-            assert request.kwargs["enable_lamport"] is expected
+            assert _resolved_capacity(request).enable_lamport is expected
         # Disabling Lamport must preserve the producer-direct pull path.
         moe_request = next(
             request
             for request in prepare.call_args_list
             if request.args[0] == mapping.moe.tp_ep_group
         )
-        assert moe_request.kwargs["producer_direct_max_numel"] == 8 * 10752
+        assert _resolved_capacity(moe_request).producer_direct_max_numel == 8 * 10752
 
 
 def test_attention_collective_gate():
@@ -302,7 +344,7 @@ def test_attention_collective_gate():
     )
 
 
-def test_the_collective_is_what_serves_an_eligible_reduce():
+def test_the_collective_is_what_serves_an_eligible_reduce(monkeypatch):
     """The predicate is half the contract; the branch must hand it the operands."""
     from tokenspeed.runtime.models.kimi_k3_comm import K3AttnComm
 
@@ -310,12 +352,29 @@ def test_the_collective_is_what_serves_an_eligible_reduce():
     collective = Mock(return_value=(reduced, "shared"))
     vendor = Mock(return_value=(None, "vendor-residual", None))
     comm = K3AttnComm.__new__(K3AttnComm)
-    comm.state = SimpleNamespace(
-        cute_ar=collective,
-        dummy_norm=SimpleNamespace(
-            weight="gamma", forward_with_allreduce_fusion=vendor
+    from tokenspeed_kernel.ops.communication import _residual, trtllm
+    from tokenspeed_kernel.registry import KernelRegistry
+    from tokenspeed_kernel.selection import SelectedKernel
+
+    monkeypatch.setattr(
+        _residual,
+        "select_collective",
+        lambda mode, dtype, name: SelectedKernel(
+            name, KernelRegistry.get().get_impl(name)
         ),
-        attn_ar_fusion_ok=True,
+    )
+    monkeypatch.setattr(trtllm, "allreduce_residual_rmsnorm", vendor)
+    vendor.return_value = (torch.zeros(9, 8), "vendor-residual", None)
+    comm.state = SimpleNamespace(
+        reduction=SimpleNamespace(
+            native=collective,
+            unit_weight="gamma",
+            vendor_fusion=True,
+            max_tokens=2048,
+            group=object(),
+            rank=0,
+            local_world_size=8,
+        )
     )
     comm.mapping = SimpleNamespace(attn=SimpleNamespace(tp_rank=0, tp_group=(0, 1)))
 
@@ -375,26 +434,35 @@ def _arming_world(monkeypatch, *, multicast: bool, shape_ok: bool, peers_agree: 
             if not peers_agree:
                 tensor.zero_()
 
+    from tokenspeed_kernel.ops.communication import _residual, cute
+    from tokenspeed_kernel.ops.moe import latent_tail
+
+    monkeypatch.setattr(_residual, "dist", FakeDist)
+    monkeypatch.setattr(
+        _residual, "current_platform", lambda: SimpleNamespace(is_nvidia=True)
+    )
+    monkeypatch.setattr(cute, "dist", FakeDist)
     monkeypatch.setattr(mod, "dist", FakeDist)
     monkeypatch.setattr(mod, "prepare_all_reduce_lane", lambda *a, **k: True)
     monkeypatch.setattr(mod, "prepare_all_reduce_fusion", lambda *a, **k: True)
-    monkeypatch.setattr(mod, "_get_process_group", lambda g: "the-group")
-    monkeypatch.setattr(mod, "multicast_backend_available", lambda g: multicast)
-    monkeypatch.setattr(mod, "attn_reduce_shape_supported", lambda **k: shape_ok)
+    process_group = SimpleNamespace(size=lambda: 8)
+    recorded["process_group"] = process_group
+    monkeypatch.setattr(mod, "_get_process_group", lambda g: process_group)
+    monkeypatch.setattr(latent_tail, "multicast_backend_available", lambda g: multicast)
+    monkeypatch.setattr(
+        latent_tail, "attn_reduce_shape_supported", lambda **k: shape_ok
+    )
     monkeypatch.setattr(
         mod, "global_server_args_dict", {"comm_fusion_max_num_tokens": 2048}
     )
-    monkeypatch.setattr(
-        mod, "RMSNorm", lambda h, eps: SimpleNamespace(weight=torch.ones(1))
-    )
     builder = Mock(return_value="collective")
-    monkeypatch.setattr(mod, "build_attn_reduce_collective", builder)
+    monkeypatch.setattr(latent_tail, "build_attn_reduce_collective", builder)
     recorded["builder"] = builder
     return mod, recorded
 
 
 _ARMING_MAPPING = SimpleNamespace(
-    attn=SimpleNamespace(tp_size=8, tp_rank=3, tp_group=object())
+    nprocs_per_node=8, attn=SimpleNamespace(tp_size=8, tp_rank=3, tp_group=object())
 )
 
 
@@ -405,14 +473,14 @@ def test_arming_builds_only_when_every_rank_agrees(monkeypatch):
         monkeypatch, multicast=True, shape_ok=True, peers_agree=True
     )
     state = mod.K3AttnCommState(mapping=_ARMING_MAPPING, hidden_size=7168)
-    assert state.cute_ar == "collective"
+    assert state.reduction.native == "collective"
     # MIN is what makes one dissenting rank stop all of them.
     assert rec["ops"] == [torch.distributed.ReduceOp.MIN]
-    assert rec["groups"] == ["the-group"]
+    assert rec["groups"] == [rec["process_group"]]
     kwargs = rec["builder"].call_args.kwargs
     assert kwargs["rank"] == 3 and kwargs["tp_size"] == 8  # rank is not size
     assert kwargs["hidden_size"] == 7168
-    assert kwargs["max_tokens"] == mod.ATTN_AR_MAX_TOKENS
+    assert kwargs["max_tokens"] == ATTN_AR_MAX_TOKENS
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="the vote is a cuda tensor")
@@ -428,7 +496,7 @@ def test_arming_declines_when_any_probe_or_peer_says_no(
         monkeypatch, multicast=multicast, shape_ok=shape_ok, peers_agree=peers_agree
     )
     state = mod.K3AttnCommState(mapping=_ARMING_MAPPING, hidden_size=7168)
-    assert state.cute_ar is None
+    assert state.reduction.native is None
     assert rec["builder"].call_count == 0
 
 
