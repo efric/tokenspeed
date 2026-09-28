@@ -46,6 +46,22 @@ generation is published and all consumer subgroups before the peer inbox is
 read. Removing either rendezvous can potentially increase cross-rank skew and
 regress perf even when the generated kernel remains correct.
 
+### gfx950 Iris attention prefill
+
+`communication/attention_prefill.py` accepts prepared BF16 TP8 projection rows
+of width 7168. Each rank reduce-scatters its token rows, adding a replicated
+residual only after the reduction's BF16 rounding. The resulting local prefix
+is owned storage. The mixer scores up to 11 replicated AttnRes history blocks,
+normalizes the BF16 mix, and pushes the normalized rows to the existing MoE
+result buffer on all ranks. It returns the local prefix shard separately; the
+host operation defines its lifetime and fallback. The longer-history variant
+uses the standalone AttnRes mixer followed by a push-gather, preserving the
+same result contract. Both variants share the prepared producer flags and use
+the MoE gather flags, with no new symmetric allocation. Row count and valid
+history count remain runtime inputs so graph replay can vary batch geometry.
+The shared Iris epoch wait compares signed modular differences to handle
+uint32 rollover without treating a stale pre-wrap publication as current.
+
 ## GEMM
 
 ### gfx950 dense BF16 projections

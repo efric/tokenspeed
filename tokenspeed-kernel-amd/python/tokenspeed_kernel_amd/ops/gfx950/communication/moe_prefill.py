@@ -200,6 +200,7 @@ def iris_moe_add_push_gather_gluon_kernel(
     BLOCK_ELEMENTS: gl.constexpr,
     NUM_PROGRAMS,
     NUM_WARPS: gl.constexpr,
+    PREFIX_IS_SHARDED: gl.constexpr,
 ):
     # In-place prefixes are safe: ranks read then write disjoint rows.
     # Reduce-scatter entry waits for prior prefix consumers.
@@ -227,7 +228,9 @@ def iris_moe_add_push_gather_gluon_kernel(
     ):
         offsets = tile * BLOCK_ELEMENTS + lanes
         mask = offsets < PARTITION_ELEMENTS
-        prefix_offsets = offsets + RANK * PARTITION_ELEMENTS
+        prefix_offsets = offsets
+        if not PREFIX_IS_SHARDED:
+            prefix_offsets += RANK * PARTITION_ELEMENTS
         a = gl.amd.cdna4.buffer_load(
             prefix_ptr, prefix_offsets, mask, 0, cache=".cg"
         ).to(gl.float32)

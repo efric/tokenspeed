@@ -213,6 +213,9 @@ def _check_lamport_state(rank, device):
         atol=0,
         rtol=0,
     )
+    # A faster rank must not publish its first tile into this rank's region
+    # while this initial sentinel assertion is still reading it.
+    dist.barrier()
     expected_epochs = torch.zeros_like(epochs)
     for rows in range(1, 9):
         for reverse in (False, True):

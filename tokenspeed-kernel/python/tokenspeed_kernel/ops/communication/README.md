@@ -11,8 +11,9 @@ or epilogue scratch.
 | --- | --- |
 | Public communication API | Preparation, ordinary reduction and bound residual operations |
 | `_contracts.py` | Vendor-neutral capacity demands and prepared-implementation selection guard |
+| `prefill.py` | Vendor-neutral attention-prefill admission and semantic result |
 | `ops/residual/attnres.py` | AttnRes partial/weight contract and standalone composition |
-| `iris.py`, `cute.py`, `trtllm.py` | Registered solution adapters |
+| `iris.py`, `iris_prefill.py`, `cute.py`, `trtllm.py` | Optional solution adapters |
 | `_iris/adapter.py` | Iris handle, preparation, eligibility and operation adapter |
 | `_iris/policy.py` | Supported domains, capacities, measured thresholds and launch geometry |
 | `_iris/context.py` | Iris dependency probes, process heap lifetime and peer mapping |
@@ -54,6 +55,17 @@ for the measured TP8 BF16 token-sharded MoE domain. It extends the prepared
 producer capacity but does not widen ordinary all-reduce admission. Its gfx950
 kernels are in `communication/moe_prefill.py` in the AMD package; the model
 calls the vendor-neutral `ops/moe/__init__.py` entry point.
+
+Attention prefill shares that result and the prepared producer buffer. Its
+`attention_prefill_mix` operation returns an owned `[M/8, 7168]` residual shard
+and a borrowed replicated normalized activation, or `None` before launch when
+unsupported. The result stays sharded through a supported MoE tail; other MoE
+tiers gather it explicitly. Producer admission covers BF16 rows 16–8192, while
+the mixer requires 512–8192 rows divisible by eight. Short or uneven batches
+still reduce the prepared producer output and use ordinary AttnRes. A borrowed
+producer result that becomes a retained block-write residual is cloned before
+the next collective. `iris_prefill.py` imports core Iris and its gfx950 helper
+only after eligibility and ownership checks.
 
 An opaque handle owns the existing cached solution state. Compatible calls reuse
 it; larger demands cannot grow an existing heap. Physical backing capacity does

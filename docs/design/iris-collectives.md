@@ -93,3 +93,17 @@ vendor-neutral entry. The Iris MoE solution checks producer ownership and
 permitted aliases before loading its gfx950 device implementation. Unsupported
 inputs return `None` before launch, leaving the caller's existing reduction and
 projection path intact.
+
+Attention prefill uses the same prepared producer input and MoE result workspace,
+without another symmetric allocation. `ops/communication/prefill.py` owns the
+semantic row windows and optional fallback. `iris_prefill.py` checks the exact
+group, producer ownership, tensor geometry, and aliasing before it imports
+gfx950 kernels. The supported mixer reduce-scatters the projection, mixes the
+local AttnRes history, and gathers only the normalized activation. It returns
+an owned residual token shard and a borrowed full activation; the model passes
+an explicit `prefix_is_sharded` bit to the MoE tail. A non-Iris MoE tier gathers
+that shard before its ordinary projection path. Uneven or short batches keep
+the prepared producer reduction but run the ordinary AttnRes mix. A block-write
+layer clones a borrowed reduced residual before it can survive a later MoE
+collective. The two solution files remain separate import boundaries: model
+and general collective imports never load the optional Iris or gfx950 helpers.

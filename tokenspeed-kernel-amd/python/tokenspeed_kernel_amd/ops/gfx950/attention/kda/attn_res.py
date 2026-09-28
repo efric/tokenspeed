@@ -39,8 +39,8 @@ def _load_candidate(
     hidden_mask,
     stride_block_t: gl.constexpr,
     stride_block_n: tl.int64,
-    candidate: gl.constexpr,
-    N: gl.constexpr,
+    candidate,
+    N,
 ):
     if candidate == N - 1:
         return prefix
@@ -52,6 +52,67 @@ def _load_candidate(
         mask=hidden_mask,
         other=0.0,
     ).to(gl.float32)
+
+
+@gluon.jit
+def _attn_res_mix_gfx950(
+    prefix,
+    block_residual,
+    res_weight,
+    score_rms_weight,
+    output_rms_weight,
+    token,
+    hidden,
+    hidden_mask,
+    stride_block_t: gl.constexpr,
+    stride_block_n: tl.int64,
+    H: gl.constexpr,
+    N,
+    SCORE_EPS: gl.constexpr,
+    OUTPUT_EPS: gl.constexpr,
+):
+    """Mix candidates with the existing BF16 boundary before output RMSNorm."""
+    prefix = prefix.to(gl.float32)
+    if N == 1:
+        mixed = prefix
+    else:
+        scorer = cdna4.buffer_load(
+            res_weight, hidden.to(gl.int32), mask=hidden_mask, other=0.0
+        ).to(gl.float32)
+        scorer *= cdna4.buffer_load(
+            score_rms_weight, hidden.to(gl.int32), mask=hidden_mask, other=0.0
+        ).to(gl.float32)
+        max_logit = -float("inf")
+        denominator = 0.0
+        mixed = gl.full(prefix.shape, 0.0, gl.float32, prefix.type.layout)
+        for candidate in range(N):
+            value = _load_candidate(
+                prefix,
+                block_residual,
+                token,
+                hidden,
+                hidden_mask,
+                stride_block_t,
+                stride_block_n,
+                candidate,
+                N,
+            )
+            square_sum = gl.sum(value * value, axis=0)
+            dot = gl.sum(value * scorer, axis=0)
+            score = dot * gl.rsqrt(square_sum / H + SCORE_EPS)
+            next_max = gl.maximum(max_logit, score)
+            old_scale = gl.exp(max_logit - next_max)
+            candidate_scale = gl.exp(score - next_max)
+            denominator = denominator * old_scale + candidate_scale
+            mixed = mixed * old_scale + candidate_scale * value
+            max_logit = next_max
+        mixed /= denominator
+    mixed = mixed.to(gl.bfloat16).to(gl.float32)
+    inverse_rms = gl.rsqrt(gl.sum(mixed * mixed, axis=0) / H + OUTPUT_EPS)
+    output_weight = cdna4.buffer_load(
+        output_rms_weight, hidden.to(gl.int32), mask=hidden_mask, other=0.0
+    ).to(gl.float32)
+    return (mixed * inverse_rms * output_weight).to(gl.bfloat16)
 
 
 @gluon.jit

@@ -68,6 +68,7 @@ def token_sharded_moe_tail(
     residual: torch.Tensor,
     projection_weight: torch.Tensor,
     *,
+    prefix_is_sharded: bool,
     norm_weight: torch.Tensor | None,
     eps: float | None,
     group: dist.ProcessGroup,
@@ -77,16 +78,18 @@ def token_sharded_moe_tail(
     Args:
         routed_partial: Producer-owned routed projection partial ``[M, 3584]``.
         shared_partial: Consecutive producer-owned shared partial ``[M, 7168]``.
-        residual: Replicated ``[M, 7168]`` prefix.
+        residual: Replicated ``[M, 7168]`` or local ``[M/8, 7168]`` prefix.
         projection_weight: Replicated BF16 up-projection weight.
+        prefix_is_sharded: Whether ``residual`` holds only this rank's rows.
         norm_weight: Optional routed RMSNorm weight; present with ``eps``.
         eps: Optional routed RMSNorm epsilon; present with ``norm_weight``.
         group: Process group owning the prepared producer buffers.
 
     Returns:
-        Borrowed ``[M, 7168]`` result until the next tail on this group, or
-        None so the caller retains its ordinary collective and projection
-        fallback. The implementation does not mutate producer-owned partials.
+        Borrowed ``[M, 7168]`` result until the next tail or attention mix on
+        this group, or None. On None, the caller gathers a residual shard before
+        its ordinary collective and projection fallback. The implementation
+        does not mutate producer-owned partials.
     """
     if not current_platform().is_cdna4:
         return None
@@ -97,6 +100,7 @@ def token_sharded_moe_tail(
         shared_partial,
         residual,
         projection_weight,
+        prefix_is_sharded=prefix_is_sharded,
         norm_weight=norm_weight,
         eps=eps,
         group=group,

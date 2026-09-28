@@ -263,12 +263,26 @@ def test_token_sharded_moe_public_api_preserves_arguments(monkeypatch):
     routed, shared, prefix, weight, group = (object() for _ in range(5))
     assert (
         moe.token_sharded_moe_tail(
-            routed, shared, prefix, weight, norm_weight=None, eps=None, group=group
+            routed,
+            shared,
+            prefix,
+            weight,
+            prefix_is_sharded=False,
+            norm_weight=None,
+            eps=None,
+            group=group,
         )
         is output
     )
     run.assert_called_once_with(
-        routed, shared, prefix, weight, norm_weight=None, eps=None, group=group
+        routed,
+        shared,
+        prefix,
+        weight,
+        prefix_is_sharded=False,
+        norm_weight=None,
+        eps=None,
+        group=group,
     )
 
 
@@ -276,9 +290,19 @@ def test_public_import_does_not_load_optional_collective_implementations():
     code = """
 import sys
 from tokenspeed_kernel.ops import communication
+before = set(sys.modules)
+from tokenspeed_kernel.ops.communication import iris_prefill, prefill
+from tokenspeed_kernel.ops.moe import iris as iris_moe, token_sharded
+assert iris_prefill.iris_attention_prefill_mix
+assert prefill.attention_prefill_mix
+assert iris_moe.iris_kimi3_moe_tail
+assert token_sharded.token_sharded_moe_tail
 assert 'iris' not in sys.modules
 assert 'tokenspeed_kernel_amd.ops.gfx950.communication.all_reduce' not in sys.modules
 assert 'tokenspeed_kernel_amd.ops.gfx950.communication.attnres' not in sys.modules
+assert 'tokenspeed_kernel_amd.ops.gfx950.communication.moe_prefill' not in sys.modules
+assert 'tokenspeed_kernel_amd.ops.gfx950.communication.attention_prefill' not in sys.modules
+assert 'tokenspeed_kernel_amd.ops.gfx950.attention.kda.attn_res' not in set(sys.modules) - before
 assert 'tokenspeed_kernel.thirdparty.iris' not in sys.modules
 """
     subprocess.run(

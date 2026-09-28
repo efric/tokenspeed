@@ -59,6 +59,11 @@ from tokenspeed_kernel.ops.communication.multimem import (
     multimem_prealloc,
     multimem_stage,
 )
+from tokenspeed_kernel.ops.communication.prefill import (
+    attention_prefill_mix,
+    attention_prefill_projection_supported,
+    attention_prefill_sharded_supported,
+)
 from tokenspeed_kernel.ops.moe import token_sharded_moe_tail
 from tokenspeed_kernel.ops.moe.latent_tail import (
     KimiK3LatentTailOp,
@@ -69,6 +74,7 @@ from tokenspeed_kernel.platform import current_platform
 
 from tokenspeed.runtime.distributed.comm_ops import (
     acquire_all_reduce_outputs,
+    all_gather,
     all_reduce,
     can_acquire_all_reduce_outputs,
     prepare_all_reduce_buffers,
@@ -470,6 +476,95 @@ class K3AttnComm:
         self.state = state
         self.mapping = state.mapping
 
+    def acquire_prefill_projection_output(
+        self,
+        like: torch.Tensor,
+        projection,
+        *,
+        is_prefill: bool,
+        sharded_moe_supported: bool,
+    ) -> torch.Tensor | None:
+        """Return prepared storage for an eligible attention producer, or None."""
+        from tokenspeed.runtime.layers.dense import UnquantizedLinearMethod
+
+        if (
+            not is_prefill
+            or not sharded_moe_supported
+            or global_server_args_dict.get("batch_invariant_collectives", False)
+            or like.ndim != 2
+            or not attention_prefill_projection_supported(like.shape[0], like.dtype)
+            or self.mapping.attn.tp_size != 8
+            or self.mapping.moe.tp_size != 8
+            or self.mapping.moe.ep_size != 1
+            or self.mapping.attn.tp_group != self.mapping.moe.tp_ep_group
+            or self.mapping.pp_size != 1
+            or type(projection.quant_method) is not UnquantizedLinearMethod
+            or projection.weight.dtype != torch.bfloat16
+            or projection.weight.shape[0] != 7168
+            or projection.bias is not None
+            or projection.reduce_results
+            or not projection.input_is_parallel
+        ):
+            return None
+        shapes = ((like.shape[0], 7168),)
+        group = self.mapping.attn.tp_group
+        if not can_acquire_all_reduce_outputs(
+            shapes, like, group, backend=None, op=dist.ReduceOp.SUM
+        ):
+            return None
+        return acquire_all_reduce_outputs(
+            shapes, like, group, backend=None, op=dist.ReduceOp.SUM
+        )[0]
+
+    def prefill_reduce_for_attnres(
+        self,
+        partial: torch.Tensor,
+        prefix: torch.Tensor | None,
+        *,
+        producer_direct: bool,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        """Return the residual and optional delta consumed by AttnRes."""
+        if producer_direct:
+            reduced = all_reduce((partial,), self.mapping.attn.tp_group)[0]
+            # Producer-direct results are borrowed. A block-write layer keeps
+            # this value across the MoE collective, so give it owned storage.
+            if prefix is None:
+                reduced = reduced.clone()
+        else:
+            reduced = all_reduce(partial, self.mapping.attn.tp_group)
+        return (reduced, None) if prefix is None else (prefix, reduced)
+
+    def prefill_mix_for_moe(
+        self,
+        partial: torch.Tensor,
+        prefix: torch.Tensor | None,
+        block_residual: torch.Tensor,
+        res_weight: torch.Tensor,
+        rms_weight: torch.Tensor,
+        *,
+        eps: float,
+        out_norm_weight: torch.Tensor,
+        out_norm_eps: float,
+        num_valid_blocks: int,
+    ) -> tuple[torch.Tensor, torch.Tensor] | None:
+        """Mix prepared projection rows, preserving the MoE residual shard."""
+        if partial.ndim != 2 or not attention_prefill_sharded_supported(
+            partial.shape[0]
+        ):
+            return None
+        return attention_prefill_mix(
+            partial,
+            prefix,
+            block_residual,
+            res_weight,
+            rms_weight,
+            eps=eps,
+            out_norm_weight=out_norm_weight,
+            out_norm_eps=out_norm_eps,
+            num_valid_blocks=num_valid_blocks,
+            group=_get_process_group(self.mapping.attn.tp_group),
+        )
+
     def bind_reduce(self, partial, residual, combine, score_weight):
         """Bind once; scheduling uses the binding's partial-readiness contract."""
         epilogue = None
@@ -808,6 +903,8 @@ class K3MoeTailComm:
         num_tokens: int,
         hidden_size: int,
         prepared_shared_shard: torch.Tensor | None = None,
+        *,
+        prefix_is_sharded: bool,
     ) -> torch.Tensor:
         """Dispatch the selected tier over the partials.
 
@@ -817,6 +914,13 @@ class K3MoeTailComm:
         ``routed_out`` is the experts kernel's deferred-finalize triple.
         """
         tier = plan.tier
+        if prefix_is_sharded and (
+            tier is not K3MoETailTier.FUSED_LANE_AR or self._shard_up_projection
+        ):
+            prefix_sum = all_gather(
+                prefix_sum, self.mapping.moe.tp_ep_group, dim=0, backend=None
+            )
+            prefix_is_sharded = False
         if tier is K3MoETailTier.TAIL_FUSION:
             if plan.defer_finalize:
                 gemm2_out, expert_weights, expanded_idx = routed_out
@@ -848,6 +952,7 @@ class K3MoeTailComm:
                 plan.symm_outputs,
                 num_tokens,
                 hidden_size,
+                prefix_is_sharded=prefix_is_sharded,
             )
         return self._tail_separate_reduce(
             routed_out, shared_partial, prefix_sum, num_tokens, hidden_size
@@ -1038,6 +1143,8 @@ class K3MoeTailComm:
         symm_outputs: tuple[torch.Tensor, torch.Tensor] | None,
         num_tokens: int,
         hidden_size: int,
+        *,
+        prefix_is_sharded: bool,
     ) -> torch.Tensor:
         if self._shard_up_projection:
             return self._tail_fused_lane_ar_sharded(
@@ -1051,6 +1158,7 @@ class K3MoeTailComm:
             symm_outputs,
             num_tokens,
             hidden_size,
+            prefix_is_sharded=prefix_is_sharded,
         )
 
     def _tail_fused_lane_ar_sharded(
@@ -1079,6 +1187,8 @@ class K3MoeTailComm:
         symm_outputs: tuple[torch.Tensor, torch.Tensor] | None,
         num_tokens: int,
         hidden_size: int,
+        *,
+        prefix_is_sharded: bool,
     ) -> torch.Tensor:
         if (
             symm_outputs is not None
@@ -1087,6 +1197,7 @@ class K3MoeTailComm:
             and self.mapping.attn.tp_size == 8
             and self.mapping.moe.tp_size == 8
             and self.mapping.moe.ep_size == 1
+            and not global_server_args_dict.get("batch_invariant_collectives", False)
             and not self.up_proj.narrowed
             and self.up_proj.solution == "auto"
         ):
@@ -1095,6 +1206,7 @@ class K3MoeTailComm:
                 shared_partial,
                 prefix_sum,
                 self.up_proj.weight,
+                prefix_is_sharded=prefix_is_sharded,
                 norm_weight=(
                     self.routed_norm.weight if self.routed_norm is not None else None
                 ),
@@ -1107,6 +1219,10 @@ class K3MoeTailComm:
             )
             if sharded is not None:
                 return sharded
+        if prefix_is_sharded:
+            prefix_sum = all_gather(
+                prefix_sum, self.mapping.moe.tp_ep_group, dim=0, backend=None
+            )
         routed_reduced, shared_reduced = kimi3_join_reduce_moe(
             routed_out,
             shared_partial,
