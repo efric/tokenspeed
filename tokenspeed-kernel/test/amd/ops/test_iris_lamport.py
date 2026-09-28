@@ -188,6 +188,7 @@ def _new_state(rank, device, capacity, dtype):
         producer_direct_max_numel=capacity,
         attnres_max_numel=0,
         attnres_max_rows=0,
+        moe_tail_max_rows=0,
         dtype=dtype,
         heap_size=None,
         device=device,

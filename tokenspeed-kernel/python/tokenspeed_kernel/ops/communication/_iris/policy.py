@@ -38,6 +38,7 @@ class IrisCapacities:
     attnres_max_numel: int
     attnres_max_rows: int
     enable_lamport: bool
+    moe_tail_max_rows: int
 
 
 def resolve_capacities(
@@ -46,11 +47,12 @@ def resolve_capacities(
     """Resolve measured admission separately from physical storage demands."""
     from tokenspeed_kernel.ops.communication._contracts import (
         AllReduceRequirement,
+        MoETailRequirement,
         PackedAllReduceRequirement,
     )
     from tokenspeed_kernel.ops.residual.attnres import AttnResRequirement
 
-    staged = producer = attnres = rows = 0
+    staged = producer = attnres = rows = moe_tail_rows = 0
     enable_lamport = False
     has_attnres = any(
         isinstance(op, AttnResRequirement) for op in preparation.operations
@@ -76,12 +78,27 @@ def resolve_capacities(
                 and op.tensor_parallel_size == 8
                 and op.expert_parallel_size == 1
             )
+        elif isinstance(op, MoETailRequirement):
+            config = IRIS_ALL_REDUCE_KERNEL_CONFIG.packed
+            if (
+                world_size != config.world_size
+                or preparation.dtype != torch.bfloat16
+                or (op.routed_width, op.hidden_width)
+                != (config.routed_hidden_size, config.hidden_size)
+            ):
+                raise ValueError("unsupported token-sharded MoE-tail requirement")
+            admitted_rows = max_rows // world_size * world_size
+            if admitted_rows >= 512:
+                moe_tail_rows = max(moe_tail_rows, admitted_rows)
+                producer = max(producer, admitted_rows * config.row_numel)
         else:
             raise TypeError(f"unsupported collective requirement: {type(op).__name__}")
     staged = min(
         staged, min(ordinary_backing_bytes, 512 * 1024) // preparation.dtype.itemsize
     )
-    return IrisCapacities(staged, producer, attnres, rows, enable_lamport)
+    return IrisCapacities(
+        staged, producer, attnres, rows, enable_lamport, moe_tail_rows
+    )
 
 
 @dataclass(frozen=True)
@@ -269,6 +286,8 @@ class PackedAllReduceKernelConfig:
     lamport_block_elements: int
     lamport_num_subgroups: int
     lamport_transaction_bytes: int
+    tail_reduce_scatter_programs: int
+    tail_gather_programs: int
 
     def __post_init__(self) -> None:
         if (
@@ -281,6 +300,8 @@ class PackedAllReduceKernelConfig:
             or self.lamport_num_subgroups != 1
             or self.lamport_transaction_bytes != 16
             or self.row_numel % self.lamport_block_elements
+            or self.tail_reduce_scatter_programs <= 0
+            or self.tail_gather_programs <= 0
         ):
             raise ValueError("invalid packed Lamport kernel configuration")
 
@@ -398,6 +419,8 @@ IRIS_ALL_REDUCE_KERNEL_CONFIG = IrisAllReduceKernelConfig(
         lamport_block_elements=512,
         lamport_num_subgroups=1,
         lamport_transaction_bytes=16,
+        tail_reduce_scatter_programs=24,
+        tail_gather_programs=128,
     ),
     attnres=AttnResKernelConfig(
         world_size=8,

@@ -63,6 +63,7 @@ from tokenspeed_kernel.ops.moe.latent_tail import (
     KimiK3LatentTailOp,
     latent_tail_supported,
 )
+from tokenspeed_kernel.ops.moe.token_sharded import token_sharded_moe_tail
 from tokenspeed_kernel.ops.residual.attnres import AttnResEpilogue
 from tokenspeed_kernel.platform import current_platform
 
@@ -190,6 +191,7 @@ def prepare_k3_all_reduce_buffers(
     from tokenspeed_kernel.ops.communication import (
         AllReducePreparation,
         AllReduceRequirement,
+        MoETailRequirement,
         PackedAllReduceRequirement,
     )
     from tokenspeed_kernel.ops.residual.attnres import AttnResRequirement
@@ -215,6 +217,21 @@ def prepare_k3_all_reduce_buffers(
                 expert_parallel_size=mapping.moe.ep_size,
             )
         )
+        if (
+            mapping.pp_size == 1
+            and mapping.attn.tp_group == mapping.moe.tp_ep_group
+            and mapping.attn.tp_size == 8
+            and mapping.moe.tp_size == 8
+            and mapping.moe.ep_size == 1
+            and (hidden_size, routed_hidden_size) == (7168, 3584)
+        ):
+            operations.append(
+                MoETailRequirement(
+                    max_rows=max_num_tokens,
+                    routed_width=routed_hidden_size,
+                    hidden_width=hidden_size,
+                )
+            )
     prepared = False
     for group, operations in groups.items():
         prepared = (
@@ -1063,6 +1080,33 @@ class K3MoeTailComm:
         num_tokens: int,
         hidden_size: int,
     ) -> torch.Tensor:
+        if (
+            symm_outputs is not None
+            and self.mapping.pp_size == 1
+            and self.mapping.attn.tp_group == self.mapping.moe.tp_ep_group
+            and self.mapping.attn.tp_size == 8
+            and self.mapping.moe.tp_size == 8
+            and self.mapping.moe.ep_size == 1
+            and not self.up_proj.narrowed
+            and self.up_proj.solution == "auto"
+        ):
+            sharded = token_sharded_moe_tail(
+                routed_out,
+                shared_partial,
+                prefix_sum,
+                self.up_proj.weight,
+                norm_weight=(
+                    self.routed_norm.weight if self.routed_norm is not None else None
+                ),
+                eps=(
+                    self.routed_norm.variance_epsilon
+                    if self.routed_norm is not None
+                    else None
+                ),
+                group=_get_process_group(self.mapping.moe.tp_ep_group),
+            )
+            if sharded is not None:
+                return sharded
         routed_reduced, shared_reduced = kimi3_join_reduce_moe(
             routed_out,
             shared_partial,

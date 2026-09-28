@@ -67,6 +67,7 @@ class TritonCommState:
     device: torch.device
     attnres_max_numel: int
     enable_lamport: bool
+    moe_tail_max_rows: int
     max_numel: int
     max_bytes: int
     max_token_num: int
@@ -1048,6 +1049,7 @@ def nvidia_create_rsag_state(
     symm_mem.rendezvous(comm_buff, group=group)
     return TritonCommState(
         enable_lamport=False,
+        moe_tail_max_rows=0,
         group=group,
         rank_in_group=rank_in_group,
         world_size=group.size(),
@@ -1517,6 +1519,7 @@ def amd_create_rsag_state(
     assert rank_in_group == symm_mem_hdl.rank, "Mismatched rank id"
     return TritonCommState(
         enable_lamport=False,
+        moe_tail_max_rows=0,
         group=group,
         rank_in_group=rank_in_group,
         world_size=world_size,
@@ -1730,6 +1733,7 @@ def create_allreduce_residual_rmsnorm_state(
 
     return TritonCommState(
         enable_lamport=False,
+        moe_tail_max_rows=0,
         group=group,
         rank_in_group=rank_in_group,
         world_size=world_size,
@@ -1855,6 +1859,7 @@ def create_state(
 
         return TritonCommState(
             group=group,
+            moe_tail_max_rows=0,
             rank_in_group=rank_in_group,
             world_size=world_size,
             device=device,

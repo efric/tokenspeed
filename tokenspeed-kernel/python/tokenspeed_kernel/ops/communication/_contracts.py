@@ -67,12 +67,29 @@ class PackedAllReduceRequirement:
 
 
 @dataclass(frozen=True)
+class MoETailRequirement:
+    """Maximum token-sharded MoE rows, with two producer widths and one result."""
+
+    max_rows: int
+    routed_width: int
+    hidden_width: int
+
+    def __post_init__(self) -> None:
+        if self.max_rows < 0 or self.routed_width <= 0 or self.hidden_width <= 0:
+            raise ValueError("invalid MoE-tail dimensions")
+
+
+@dataclass(frozen=True)
 class AllReducePreparation:
     """Operation demands for one group; implementations derive physical storage."""
 
     dtype: torch.dtype
     operations: tuple[
-        AllReduceRequirement | PackedAllReduceRequirement | AttnResRequirement, ...
+        AllReduceRequirement
+        | PackedAllReduceRequirement
+        | MoETailRequirement
+        | AttnResRequirement,
+        ...,
     ]
 
 

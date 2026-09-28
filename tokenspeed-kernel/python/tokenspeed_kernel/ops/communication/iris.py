@@ -66,6 +66,7 @@ def create_iris_state(
     producer_direct_max_numel: int,
     attnres_max_numel: int,
     attnres_max_rows: int,
+    moe_tail_max_rows: int,
     enable_lamport: bool,
     dtype: torch.dtype,
     heap_size: int | None,
@@ -80,6 +81,7 @@ def create_iris_state(
         producer_direct_max_numel: Maximum producer-direct payload.
         attnres_max_numel: Maximum fused attention/AttnRes payload.
         attnres_max_rows: Maximum fused attention/AttnRes rows.
+        moe_tail_max_rows: Capacity of the borrowed token-sharded MoE result.
         enable_lamport: Allow Lamport for eligible producer-direct payloads.
         dtype: Element type for all payload buffers.
         heap_size: Optional symmetric heap size in bytes.
@@ -97,6 +99,7 @@ def create_iris_state(
         producer_direct_max_numel=producer_direct_max_numel,
         attnres_max_numel=attnres_max_numel,
         attnres_max_rows=attnres_max_rows,
+        moe_tail_max_rows=moe_tail_max_rows,
         enable_lamport=enable_lamport,
         dtype=dtype,
         heap_size=heap_size,

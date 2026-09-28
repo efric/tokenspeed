@@ -43,10 +43,17 @@ host vote, allocation, or device-value read in the forward path.
 ## Preparation and lifetime
 
 An `AllReducePreparation` contains dtype and a tuple of
-`AllReduceRequirement`, `PackedAllReduceRequirement`, or `AttnResRequirement`.
+`AllReduceRequirement`, `PackedAllReduceRequirement`, `MoETailRequirement`,
+or `AttnResRequirement`.
 The packed requirement describes output widths and TP/EP group axes. It never
 requests Lamport. Requirements must match across participants, and preparation
 must complete before cache sizing and graph capture.
+
+`MoETailRequirement` reserves a separate borrowed result and gather flags only
+for the measured TP8 BF16 token-sharded MoE domain. It extends the prepared
+producer capacity but does not widen ordinary all-reduce admission. Its gfx950
+kernels are in `communication/moe_prefill.py` in the AMD package; the model
+calls the vendor-neutral `ops/moe/token_sharded.py` entry point.
 
 An opaque handle owns the existing cached solution state. Compatible calls reuse
 it; larger demands cannot grow an existing heap. Physical backing capacity does

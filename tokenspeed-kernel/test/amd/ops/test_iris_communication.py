@@ -97,6 +97,7 @@ def test_iris_state_uses_path_capacities(monkeypatch, enable_lamport):
         max_bytes=64,
         attnres_max_numel=55,
         max_token_num=5,
+        moe_tail_max_rows=0,
         enable_lamport=enable_lamport,
         device=torch.device("cpu"),
     )
@@ -137,6 +138,7 @@ def test_iris_state_reuses_prepared_capacity(
         producer_direct_max_numel=128,
         attnres_max_numel=32,
         attnres_max_rows=4,
+        moe_tail_max_rows=0,
         enable_lamport=prepared_lamport,
     )
     iris_ops = SimpleNamespace(
@@ -153,6 +155,7 @@ def test_iris_state_reuses_prepared_capacity(
         max_bytes=max_bytes,
         attnres_max_numel=8,
         max_token_num=1,
+        moe_tail_max_rows=0,
         enable_lamport=requested_lamport,
         device=device,
     )
@@ -505,6 +508,7 @@ def _ar_worker_main(rank: int, world_size: int, port: int) -> None:
             producer_direct_max_numel=producer_direct_max_numel,
             attnres_max_numel=attnres_max_numel,
             attnres_max_rows=attnres_max_rows,
+            moe_tail_max_rows=0,
             dtype=torch.bfloat16,
             heap_size=None,
             device=device,
@@ -642,6 +646,7 @@ def _ar_worker_main(rank: int, world_size: int, port: int) -> None:
             producer_direct_max_numel=producer_direct_max_numel,
             attnres_max_numel=0,
             attnres_max_rows=0,
+            moe_tail_max_rows=0,
             dtype=torch.float16,
             heap_size=None,
             device=device,
@@ -670,6 +675,7 @@ def _ar_worker_main(rank: int, world_size: int, port: int) -> None:
             producer_direct_max_numel=producer_direct_max_numel,
             attnres_max_numel=0,
             attnres_max_rows=0,
+            moe_tail_max_rows=0,
             dtype=torch.float32,
             heap_size=None,
             device=device,
@@ -1060,6 +1066,7 @@ def _ar_subgroup_worker_fn(rank, world_size, port, error_dict):
             producer_direct_max_numel=8 * (7168 + 3584),
             attnres_max_numel=0,
             attnres_max_rows=0,
+            moe_tail_max_rows=0,
             dtype=torch.bfloat16,
             heap_size=None,
             device=device,

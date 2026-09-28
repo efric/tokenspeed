@@ -7,6 +7,7 @@ import torch.distributed as dist
 from tokenspeed_kernel.ops.communication._contracts import (
     AllReducePreparation,
     AllReduceRequirement,
+    MoETailRequirement,
     PackedAllReduceRequirement,
 )
 from tokenspeed_kernel.ops.communication._iris.adapter import (

@@ -51,6 +51,7 @@ class IrisAllReduceHandle:
     device: torch.device
     attnres_max_numel: int
     enable_lamport: bool
+    moe_tail_max_rows: int
     max_numel: int
     max_bytes: int
     max_token_num: int
@@ -88,6 +89,7 @@ def create_all_reduce_handle(
         max_bytes=producer_direct_max_bytes,
         attnres_max_numel=0,
         enable_lamport=False,
+        moe_tail_max_rows=0,
         max_token_num=0,
     )
 
@@ -127,6 +129,7 @@ def prepare_all_reduce_handle(
         capacity.producer_direct_max_numel * preparation.dtype.itemsize,
         capacity.attnres_max_numel,
         capacity.attnres_max_rows,
+        capacity.moe_tail_max_rows,
     )
     if not any(requested):
         return None
@@ -140,6 +143,7 @@ def prepare_all_reduce_handle(
             previous.max_bytes,
             previous.attnres_max_numel,
             previous.max_token_num,
+            previous.moe_tail_max_rows,
         )
         if any(have < need for have, need in zip(available, requested)):
             raise RuntimeError(
@@ -157,6 +161,7 @@ def prepare_all_reduce_handle(
         attnres_max_numel=requested[2],
         max_token_num=requested[3],
         enable_lamport=capacity.enable_lamport,
+        moe_tail_max_rows=capacity.moe_tail_max_rows,
     )
     initialize_all_reduce_state(state, preparation.dtype)
     return state
@@ -193,6 +198,7 @@ def _iris_state_key(state: IrisAllReduceHandle, dtype: torch.dtype) -> tuple:
         producer_direct_max_numel,
         state.attnres_max_numel,
         state.max_token_num,
+        state.moe_tail_max_rows,
         state.enable_lamport,
         dtype,
     )
@@ -208,6 +214,7 @@ def _iris_state_is_compatible(iris_state, state, dtype: torch.dtype) -> bool:
         and iris_state.producer_direct_max_numel >= state.max_bytes // dtype.itemsize
         and iris_state.attnres_max_numel >= state.attnres_max_numel
         and iris_state.attnres_max_rows >= state.max_token_num
+        and iris_state.moe_tail_max_rows >= state.moe_tail_max_rows
         # AttnRes-only views can share a prepared state regardless of its
         # producer-direct policy; they never dispatch a Lamport reduction.
         and (state.max_bytes == 0 or iris_state.enable_lamport == state.enable_lamport)
@@ -237,6 +244,7 @@ def _get_or_create_iris_state(state: IrisAllReduceHandle, dtype: torch.dtype):
             producer_direct_max_numel=state.max_bytes // dtype.itemsize,
             attnres_max_numel=state.attnres_max_numel,
             attnres_max_rows=state.max_token_num,
+            moe_tail_max_rows=state.moe_tail_max_rows,
             enable_lamport=state.enable_lamport,
             dtype=dtype,
             heap_size=None,
@@ -508,6 +516,7 @@ def _attnres_comm_state(
 ) -> IrisAllReduceHandle:
     return IrisAllReduceHandle(
         enable_lamport=False,
+        moe_tail_max_rows=0,
         group=group,
         rank_in_group=rank,
         world_size=group.size(),

@@ -65,6 +65,12 @@ class ProducerWorkspace:
 
 
 @dataclass(frozen=True)
+class MoETailWorkspace:
+    result: torch.Tensor | None
+    flags: torch.Tensor | None
+
+
+@dataclass(frozen=True)
 class LamportWorkspace:
     region: torch.Tensor | None
     epochs: torch.Tensor | None
@@ -88,6 +94,7 @@ class IrisAllReduceWorkspace:
         producer_direct_max_numel: int,
         attnres_max_numel: int,
         attnres_max_rows: int,
+        moe_tail_max_rows: int,
         enable_lamport: bool,
         dtype: torch.dtype,
         heap_size: int | None,
@@ -111,6 +118,7 @@ class IrisAllReduceWorkspace:
         self.producer_direct_max_numel = producer_direct_max_numel
         self.attnres_max_numel = attnres_max_numel
         self.attnres_max_rows = attnres_max_rows
+        self.moe_tail_max_rows = moe_tail_max_rows
         self.enable_lamport = enable_lamport
         self.dtype = dtype
         self.device = device or torch.device(f"cuda:{torch.cuda.current_device()}")
@@ -121,6 +129,7 @@ class IrisAllReduceWorkspace:
                 producer_direct_max_numel,
                 attnres_max_numel,
                 attnres_max_rows,
+                moe_tail_max_rows,
             )
             < 0
         ):
@@ -134,6 +143,15 @@ class IrisAllReduceWorkspace:
         staged_config = self._kernel_config.staged
         two_stage_config = self._kernel_config.two_stage
         moe_config = self._kernel_config.packed
+        if moe_tail_max_rows and not (
+            _platform.is_cdna4
+            and self.world_size == moe_config.world_size
+            and dtype == torch.bfloat16
+            and moe_tail_max_rows <= 8192
+            and moe_tail_max_rows % self.world_size == 0
+            and moe_tail_max_rows * moe_config.row_numel <= producer_direct_max_numel
+        ):
+            raise ValueError("unsupported token-sharded MoE-tail capacity")
         self._elements_per_word = (
             self._kernel_config.packed_word_bytes // dtype.itemsize
         )
@@ -174,6 +192,7 @@ class IrisAllReduceWorkspace:
                 if self._producer_direct_two_stage_workspace_required
                 else 0
             ),
+            moe_config.tail_reduce_scatter_programs if moe_tail_max_rows else 0,
         )
         self._staged_max_programs = staged_config.max_programs(
             max_numel=staged_max_numel
@@ -241,6 +260,13 @@ class IrisAllReduceWorkspace:
                 + flag_numel * torch.int32.itemsize
                 + (16 << 20),
             )
+            if moe_tail_max_rows:
+                heap_size += (
+                    moe_tail_max_rows * moe_config.hidden_size * dtype.itemsize
+                    + moe_config.tail_gather_programs
+                    * self.world_size
+                    * torch.int32.itemsize
+                )
 
         free_gpu_memory_begin = _get_available_gpu_memory(torch.cuda.current_device())
         self._ctx = _get_or_create_iris_context(heap_size)
@@ -250,6 +276,18 @@ class IrisAllReduceWorkspace:
         _input_buf = (
             self._ctx.zeros((producer_direct_max_numel,), dtype=dtype)
             if producer_direct_max_numel
+            else None
+        )
+        _moe_tail_output_buf = (
+            self._ctx.empty((moe_tail_max_rows, moe_config.hidden_size), dtype=dtype)
+            if moe_tail_max_rows
+            else None
+        )
+        _moe_tail_ready_flags = (
+            self._ctx.zeros(
+                (moe_config.tail_gather_programs, self.world_size), dtype=torch.int32
+            )
+            if moe_tail_max_rows
             else None
         )
         _attnres_push_inbox = (
@@ -436,6 +474,7 @@ class IrisAllReduceWorkspace:
             _reduced_output_buf,
             _producer_direct_ready_flags,
         )
+        self.moe_tail = MoETailWorkspace(_moe_tail_output_buf, _moe_tail_ready_flags)
         self.lamport = LamportWorkspace(
             _lamport_region, _lamport_epochs, _lamport_peer_addresses
         )
