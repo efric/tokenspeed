@@ -3280,7 +3280,8 @@ def create_iris_state(
         attnres_max_numel: Maximum fused attention/AttnRes payload.
         attnres_max_rows: Maximum fused attention/AttnRes rows.
         enable_lamport: Allow Lamport for eligible producer-direct payloads.
-        moe_tail_max_rows: Capacity of the borrowed K3 MoE result; zero disables it.
+        moe_tail_max_rows: Maximum rows in the reusable symmetric result buffer;
+            zero skips its allocation.
         dtype: Element type for all payload buffers.
         heap_size: Optional symmetric heap size in bytes.
         device: Device on which buffers are allocated.
