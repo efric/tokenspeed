@@ -63,6 +63,9 @@ logger = logging.getLogger(__file__)
 
 _platform = current_platform()
 
+# Loaded only after the attention mix has passed its eligibility checks.
+_attn_res_mix_gfx950 = None
+
 __all__ = [
     "IRIS_ALL_REDUCE_KERNEL_CONFIG",
     "IrisAllReduce",
@@ -81,6 +84,7 @@ __all__ = [
     "create_iris_ar_rmsnorm_state",
     "iris_allreduce_residual_rmsnorm",
     "iris_kimi3_moe_tail",
+    "iris_attention_mix",
     "IRIS_AR_STATES",
     "IRIS_AR_RMSNORM_STATES",
 ]
@@ -1532,7 +1536,7 @@ class IrisAllReduce(object):
         return hidden, residual_out
 
 
-# CDNA4 MoE collectives over consecutive token rows assigned by rank.
+# CDNA4 collectives over consecutive token rows assigned by rank.
 
 
 @gluon.jit
@@ -1589,8 +1593,8 @@ def _row_partition_entry_barrier(
         seen = gl.load(
             local_flags, mask=remote, other=epoch, cache_modifier=".cv", volatile=True
         )
+    # Acquire lowering already joins the workgroup after cache invalidation.
     gl.atomic_add(local_flags, 0, mask=remote, sem="acquire", scope="sys")
-    gl.barrier()
 
 
 @gluon.jit
@@ -1699,9 +1703,10 @@ def iris_moe_reduce_scatter_gluon_kernel(
 
 
 # Rank q owns L = M/8 consecutive rows. For local row u, r = q*L + u,
-# and every destination rank p:
+# set i = r for a replicated prefix or i = u when PREFIX_IS_SHARDED.
+# For every destination rank p:
 #
-#   output_p[r,j] = BF16((FP32(prefix_q[r,j])
+#   output_p[r,j] = BF16((FP32(prefix_q[i,j])
 #                         + FP32(projected_q[u,j]))
 #                         + FP32(shared_reduced_q[u,j]))
 #
@@ -1726,6 +1731,7 @@ def iris_moe_add_push_gather_gluon_kernel(
     BLOCK_ELEMENTS: gl.constexpr,
     NUM_PROGRAMS: gl.constexpr,
     NUM_WARPS: gl.constexpr,
+    PREFIX_IS_SHARDED: gl.constexpr,
 ):
     # In-place prefixes are safe: ranks read then write disjoint rows.
     # Reduce-scatter entry waits for prior prefix consumers.
@@ -1756,7 +1762,9 @@ def iris_moe_add_push_gather_gluon_kernel(
             mask = gl.full((BLOCK_ELEMENTS,), True, gl.int1, layout)
         else:
             mask = offsets < PARTITION_ELEMENTS
-        prefix_offsets = offsets + RANK * PARTITION_ELEMENTS
+        prefix_offsets = offsets
+        if not PREFIX_IS_SHARDED:
+            prefix_offsets += RANK * PARTITION_ELEMENTS
         a = gl.amd.cdna4.buffer_load(
             prefix_ptr, prefix_offsets, mask, 0, cache=".cg"
         ).to(gl.float32)
@@ -1777,6 +1785,257 @@ def iris_moe_add_push_gather_gluon_kernel(
                 cache=".wt",
             )
     _row_partition_store_completion(flags, peer_flags, block_id, epoch, RANK, NUM_WARPS)
+
+
+def _reduce_metadata(grid, kernel, args):
+    elements = args["PARTITION_ELEMENTS"]
+    return {
+        "name": kernel.name,
+        "bytes": elements * (9 + int(args["HAS_RESIDUAL"])) * 2,
+        "flops32": elements * (7 + int(args["HAS_RESIDUAL"])),
+    }
+
+
+def _gather_metadata(grid, kernel, args):
+    return {"name": kernel.name, "bytes": args["PARTITION_ELEMENTS"] * 9 * 2}
+
+
+def _mix_gather_metadata(grid, kernel, args):
+    return {
+        "name": kernel.name,
+        "bytes": args["LOCAL_ROWS"]
+        * 7168
+        * (args["NUM_VALID_BLOCKS"] + 10 + 2 * int(args["NUM_VALID_BLOCKS"] > 0))
+        * 2,
+    }
+
+
+# Rank q owns L = M/8 consecutive rows. For local row u, r = q*L + u,
+# reduce that row from all eight attention producers:
+#
+#   reduced_q[u,j] = BF16(sum_p FP32(partial_p[r,j]))
+#   prefix_q[u,j] = reduced_q[u,j]                         (no residual)
+#                 = BF16(FP32(reduced_q[u,j])
+#                      + FP32(residual_q[r,j]))            (with residual)
+#
+# The sum uses the even/odd FP32 tree. BF16 rounding precedes the residual
+# add; only rank q's rows are stored in its local prefix.
+@gluon.jit(launch_metadata=_reduce_metadata)
+def iris_attention_reduce_scatter_gluon_kernel(
+    input_ptr,
+    residual_ptr,
+    prefix_ptr,
+    ready_flags,
+    heap_base_0,
+    heap_base_1,
+    heap_base_2,
+    heap_base_3,
+    heap_base_4,
+    heap_base_5,
+    heap_base_6,
+    heap_base_7,
+    RANK: gl.constexpr,
+    PARTITION_ELEMENTS: gl.constexpr,
+    BLOCK_ELEMENTS: gl.constexpr,
+    NUM_PROGRAMS: gl.constexpr,
+    NUM_WARPS: gl.constexpr,
+    HAS_RESIDUAL: gl.constexpr,
+):
+    heaps = (
+        heap_base_0,
+        heap_base_1,
+        heap_base_2,
+        heap_base_3,
+        heap_base_4,
+        heap_base_5,
+        heap_base_6,
+        heap_base_7,
+    )
+    inputs = _peer_buffers(input_ptr, heaps, RANK)
+    flags = ready_flags.to(gl.pointer_type(gl.uint32))
+    peers = _peer_flags(flags, heaps, RANK, NUM_WARPS)
+    pid = gl.program_id(0)
+    epoch = gl.atomic_add(flags + pid * 8 + RANK, 1, sem="relaxed", scope="gpu") + 1
+    _row_partition_entry_barrier(flags, peers, pid, epoch, RANK, NUM_WARPS)
+    layout: gl.constexpr = gl.BlockedLayout([8], [64], [NUM_WARPS], [0])
+    lanes = gl.arange(0, BLOCK_ELEMENTS, layout=layout)
+    for tile in range(pid, gl.cdiv(PARTITION_ELEMENTS, BLOCK_ELEMENTS), NUM_PROGRAMS):
+        offsets = tile * BLOCK_ELEMENTS + lanes
+        mask = offsets < PARTITION_ELEMENTS
+        source = RANK * PARTITION_ELEMENTS + offsets
+        values = ()
+        for step in gl.static_range(8):
+            values += (
+                gl.amd.cdna4.buffer_load(
+                    inputs[(RANK + step) % 8], source, mask, 0, cache=".cg"
+                ),
+            )
+        # Preserve Iris's even/odd FP32 tree and the BF16 boundary before add.
+        even = (
+            values[(0 - RANK) % 8].to(gl.float32)
+            + values[(2 - RANK) % 8].to(gl.float32)
+        ) + (
+            values[(4 - RANK) % 8].to(gl.float32)
+            + values[(6 - RANK) % 8].to(gl.float32)
+        )
+        odd = (
+            values[(1 - RANK) % 8].to(gl.float32)
+            + values[(3 - RANK) % 8].to(gl.float32)
+        ) + (
+            values[(5 - RANK) % 8].to(gl.float32)
+            + values[(7 - RANK) % 8].to(gl.float32)
+        )
+        prefix = (even + odd).to(gl.bfloat16)
+        if HAS_RESIDUAL:
+            residual = gl.amd.cdna4.buffer_load(
+                residual_ptr, source, mask, 0, cache=".ca"
+            )
+            prefix = (prefix.to(gl.float32) + residual.to(gl.float32)).to(gl.bfloat16)
+        gl.amd.cdna4.buffer_store(prefix, prefix_ptr, offsets, mask, cache=".wb")
+    # Only local storage was written. The gather's completion orders every
+    # rank's input reads before the next producer reuses the symmetric input.
+
+
+# Rank q has mixed its L = M/8 local rows. For u in [0,L), r = q*L + u,
+# and every destination rank p:
+#
+#   output_p[r,j] = mixed_q[u,j]
+#
+# Each rank pushes its rows to every peer; other ranks write disjoint rows.
+@gluon.jit(launch_metadata=_gather_metadata)
+def iris_attention_push_gather_gluon_kernel(
+    mixed_ptr,
+    output_ptr,
+    ready_flags,
+    heap_base_0,
+    heap_base_1,
+    heap_base_2,
+    heap_base_3,
+    heap_base_4,
+    heap_base_5,
+    heap_base_6,
+    heap_base_7,
+    RANK: gl.constexpr,
+    PARTITION_ELEMENTS: gl.constexpr,
+    BLOCK_ELEMENTS: gl.constexpr,
+    NUM_PROGRAMS: gl.constexpr,
+    NUM_WARPS: gl.constexpr,
+):
+    heaps = (
+        heap_base_0,
+        heap_base_1,
+        heap_base_2,
+        heap_base_3,
+        heap_base_4,
+        heap_base_5,
+        heap_base_6,
+        heap_base_7,
+    )
+    outputs = _peer_buffers(output_ptr, heaps, RANK)
+    flags = ready_flags.to(gl.pointer_type(gl.uint32))
+    peers = _peer_flags(flags, heaps, RANK, NUM_WARPS)
+    pid = gl.program_id(0)
+    epoch = gl.atomic_add(flags + pid * 8 + RANK, 1, sem="relaxed", scope="gpu") + 1
+    layout: gl.constexpr = gl.BlockedLayout([8], [64], [NUM_WARPS], [0])
+    lanes = gl.arange(0, BLOCK_ELEMENTS, layout=layout)
+    for tile in range(pid, gl.cdiv(PARTITION_ELEMENTS, BLOCK_ELEMENTS), NUM_PROGRAMS):
+        offsets = tile * BLOCK_ELEMENTS + lanes
+        mask = offsets < PARTITION_ELEMENTS
+        value = gl.amd.cdna4.buffer_load(mixed_ptr, offsets, mask, 0, cache=".cg")
+        # Scalar peer bases let all eight stores issue without intervening drains.
+        for step in gl.static_range(8):
+            gl.amd.cdna4.buffer_store(
+                value,
+                outputs[(RANK + step) % 8],
+                RANK * PARTITION_ELEMENTS + offsets,
+                mask,
+                cache=".wt",
+            )
+    _row_partition_store_completion(flags, peers, pid, epoch, RANK, NUM_WARPS)
+
+
+# Rank q owns local prefix row u for global row r = q*L + u, L = M/8.
+# Mix that prefix with the first NUM_VALID_BLOCKS history candidates at r,
+# round to BF16, apply output RMSNorm, and round to BF16 again. For every peer p:
+#
+#   output_p[r,j] = mixed_q[u,j]
+#
+# Each rank pushes its rows to every peer; other ranks write disjoint rows.
+@gluon.jit(launch_metadata=_mix_gather_metadata)
+def iris_attention_mix_push_gluon_kernel(
+    prefix_ptr,
+    output_ptr,
+    block_residual,
+    res_weight,
+    rms_weight,
+    out_norm_weight,
+    ready_flags,
+    heap_base_0,
+    heap_base_1,
+    heap_base_2,
+    heap_base_3,
+    heap_base_4,
+    heap_base_5,
+    heap_base_6,
+    heap_base_7,
+    RANK: gl.constexpr,
+    LOCAL_ROWS: gl.constexpr,
+    STRIDE_BLOCK_T: gl.constexpr,
+    STRIDE_BLOCK_N,
+    NUM_VALID_BLOCKS: gl.constexpr,
+    SCORE_EPS: gl.constexpr,
+    OUTPUT_EPS: gl.constexpr,
+    NUM_PROGRAMS: gl.constexpr,
+    NUM_WARPS: gl.constexpr,
+):
+    heaps = (
+        heap_base_0,
+        heap_base_1,
+        heap_base_2,
+        heap_base_3,
+        heap_base_4,
+        heap_base_5,
+        heap_base_6,
+        heap_base_7,
+    )
+    outputs = _peer_buffers(output_ptr, heaps, RANK)
+    flags = ready_flags.to(gl.pointer_type(gl.uint32))
+    peers = _peer_flags(flags, heaps, RANK, NUM_WARPS)
+    pid = gl.program_id(0)
+    epoch = gl.atomic_add(flags + pid * 8 + RANK, 1, sem="relaxed", scope="gpu") + 1
+    layout: gl.constexpr = gl.BlockedLayout([8], [64], [NUM_WARPS], [0])
+    hidden = gl.arange(0, 8192, layout=layout)
+    mask = hidden < 7168
+    for row in range(pid, LOCAL_ROWS, NUM_PROGRAMS):
+        token = RANK * LOCAL_ROWS + row
+        prefix = gl.amd.cdna4.buffer_load(
+            prefix_ptr, row * 7168 + hidden, mask, 0, cache=".ca"
+        )
+        mixed = _attn_res_mix_gfx950(
+            prefix,
+            block_residual,
+            res_weight,
+            rms_weight,
+            out_norm_weight,
+            token,
+            hidden,
+            mask,
+            STRIDE_BLOCK_T,
+            STRIDE_BLOCK_N,
+            7168,
+            NUM_VALID_BLOCKS + 1,
+            SCORE_EPS,
+            OUTPUT_EPS,
+        )
+        for step in gl.static_range(8):
+            gl.amd.cdna4.buffer_store(
+                mixed,
+                outputs[(RANK + step) % 8],
+                token * 7168 + hidden,
+                mask,
+                cache=".wt",
+            )
+    _row_partition_store_completion(flags, peers, pid, epoch, RANK, NUM_WARPS)
 
 
 @triton.jit
@@ -2159,8 +2418,16 @@ def _iris_sync_rank_epoch(
             gl.pointer_type(gl.int32),
         )
         wait_flags += block_id * WORLD_SIZE + peer_ids
-    seen = gl.full([WORLD_SIZE], 0, gl.int32, layout=ready_layout)
-    while gl.min(gl.where(peer_mask, seen, epoch), axis=0) < epoch:
+    seen = gl.load(
+        wait_flags,
+        mask=peer_mask,
+        other=epoch,
+        cache_modifier=".cv",
+        volatile=True,
+    )
+    # Compare modulo 32 bits, including when a peer has passed the wrap before
+    # this rank. A zero or negative epoch still requires observing every peer.
+    while gl.min((seen - epoch).to(gl.int32), axis=0) < 0:
         seen = gl.load(
             wait_flags,
             mask=peer_mask,
@@ -3435,6 +3702,7 @@ def iris_kimi3_moe_tail(
     prefix: torch.Tensor,
     projection_weight: torch.Tensor,
     *,
+    prefix_is_sharded: bool,
     norm_weight: torch.Tensor | None,
     eps: float | None,
     group: dist.ProcessGroup,
@@ -3449,19 +3717,21 @@ def iris_kimi3_moe_tail(
         routed_partial: Prepared routed partial, ``[M, 3584]``.
         shared_partial: Prepared shared partial, ``[M, 7168]``, immediately
             following ``routed_partial`` in Iris storage.
-        prefix: Replicated residual, ``[M, 7168]``. An exact alias with
-            the result buffer is consumed before overwrite; other overlaps
-            are rejected.
+        prefix: Residual, replicated ``[M, 7168]`` or this rank's
+            ``[M/8, 7168]`` rows. A replicated prefix may exactly alias
+            the result buffer and is consumed before overwrite; other
+            overlaps are rejected.
         projection_weight: Replicated ``[7168, 3584]`` weight.
+        prefix_is_sharded: Whether ``prefix`` contains only this rank's rows.
         norm_weight: RMSNorm ``[3584]`` weight, or None.
         eps: Positive RMSNorm epsilon, or None without normalization.
         group: Eight-rank group owning the prepared Iris buffers.
 
     Returns:
         BF16 ``[M, 7168]`` view of the reusable result buffer, or None
-        before launch if unsupported. The next MoE tail can overwrite it;
-        clone it to retain the value. Calls sharing the state must run in
-        order on one stream, including graph capture and replay.
+        before launch if unsupported. The next MoE tail or attention mix can
+        overwrite it; clone it to retain the value. Calls sharing the state
+        must run in order on one stream, including graph capture and replay.
     """
     if not current_platform().is_cdna4 or routed_partial.ndim != 2:
         return None
@@ -3471,7 +3741,7 @@ def iris_kimi3_moe_tail(
         or rows % 8 != 0
         or latent != 3584
         or shared_partial.shape != (rows, 7168)
-        or prefix.shape != (rows, 7168)
+        or prefix.shape != (rows // 8 if prefix_is_sharded else rows, 7168)
         or projection_weight.shape != (7168, 3584)
         or group.size() != 8
     ):
@@ -3542,6 +3812,7 @@ def iris_kimi3_moe_tail(
                     buffer is result_buffer
                     and tensor is prefix
                     and start == buffer_start
+                    and not prefix_is_sharded
                 ):
                     return None
 
@@ -3590,6 +3861,254 @@ def iris_kimi3_moe_tail(
         BLOCK_ELEMENTS=2048,
         NUM_PROGRAMS=gather_programs,
         NUM_WARPS=4,
+        PREFIX_IS_SHARDED=prefix_is_sharded,
         num_warps=4,
     )
     return output
+
+
+def _overlaps(tensor: torch.Tensor, buffer: torch.Tensor) -> bool:
+    if tensor.numel() == 0:
+        return False
+    # History can have padding between blocks or tokens. Include its full span.
+    span = 1 + sum(
+        (size - 1) * stride
+        for size, stride in zip(tensor.shape, tensor.stride(), strict=True)
+    )
+    begin = tensor.data_ptr()
+    end = begin + span * tensor.element_size()
+    return (
+        begin < buffer.data_ptr() + buffer.numel() * buffer.element_size()
+        and buffer.data_ptr() < end
+    )
+
+
+def iris_attention_mix(
+    partial: torch.Tensor,
+    residual: torch.Tensor | None,
+    block_residual: torch.Tensor,
+    res_weight: torch.Tensor,
+    rms_weight: torch.Tensor,
+    *,
+    eps: float,
+    out_norm_weight: torch.Tensor,
+    out_norm_eps: float,
+    num_valid_blocks: int,
+    group: dist.ProcessGroup,
+) -> tuple[torch.Tensor, torch.Tensor] | None:
+    """Reduce attention partials for this rank's consecutive token rows.
+
+    Gather the normalized AttnRes mix to every rank.
+
+    Args:
+        partial: Prepared contiguous CUDA BF16 projection, ``[M, 7168]``.
+            M is positive and divisible by eight. The producer is preserved.
+        residual: Replicated contiguous BF16 residual, ``[M, 7168]``, or None
+            on a block-write layer. A disjoint residual is preserved. An exact
+            alias of the prepared MoE result is consumed before that result is
+            overwritten; shifted overlaps are unsupported.
+        block_residual: Replicated BF16 history, ``[K, M, 7168]``, with a
+            contiguous hidden dimension. Padding between tokens/blocks is allowed.
+        res_weight: Replicated contiguous BF16 scorer weight, ``[7168]``.
+        rms_weight: Replicated contiguous BF16 score RMSNorm weight, ``[7168]``.
+        eps: Positive finite score RMSNorm epsilon.
+        out_norm_weight: Replicated contiguous BF16 output RMSNorm weight,
+            ``[7168]``.
+        out_norm_eps: Positive finite output RMSNorm epsilon.
+        num_valid_blocks: Number of leading history snapshots to mix, from 0
+            through 11. History and weights must not overlap collective storage.
+        group: The exact eight-rank group owning the prepared producer. Every
+            rank supplies the same shapes, eligibility and operation order.
+
+    Returns:
+        This rank's residual rows ``[M/8, 7168]`` in separate storage and
+        a replicated activation ``[M, 7168]`` in the reusable result buffer,
+        or None before launch if unsupported. Finish using the activation on
+        the calling stream before the next attention mix or MoE tail on this
+        group; clone it if needed longer. The residual rows remain local until
+        the MoE tail consumes them or the fallback gathers them.
+
+    No process groups or symmetric buffers are created. Calls sharing this
+    state are serialized on one stream, including capture and replay. Runtime
+    policy selects the profitable token window independently of this contract.
+    """
+    if (
+        not current_platform().is_cdna4
+        or partial.ndim != 2
+        or partial.shape[0] <= 0
+        or partial.shape[0] % 8 != 0
+        or partial.shape[1] != 7168
+        or not partial.is_cuda
+        or partial.dtype != torch.bfloat16
+        or not partial.is_contiguous()
+        or group.size() != 8
+        or block_residual.ndim != 3
+        or block_residual.shape[1:] != partial.shape
+        or block_residual.dtype != partial.dtype
+        or block_residual.device != partial.device
+        or block_residual.stride(-1) != 1
+        or (partial.shape[0] - 1) * block_residual.stride(1) + 7168 >= 1 << 30
+        or not isinstance(num_valid_blocks, int)
+        or not 0 <= num_valid_blocks <= min(11, block_residual.shape[0])
+        or not math.isfinite(eps)
+        or eps <= 0
+        or not math.isfinite(out_norm_eps)
+        or out_norm_eps <= 0
+    ):
+        return None
+    if residual is not None and (
+        residual.shape != partial.shape
+        or residual.dtype != partial.dtype
+        or residual.device != partial.device
+        or not residual.is_contiguous()
+    ):
+        return None
+    weights = (res_weight, rms_weight, out_norm_weight)
+    if any(
+        weight.shape != (7168,)
+        or weight.dtype != partial.dtype
+        or weight.device != partial.device
+        or not weight.is_contiguous()
+        for weight in weights
+    ):
+        return None
+
+    state = next(
+        (
+            s
+            for s in IRIS_AR_STATES.values()
+            if s.group is group and s.owns_outputs((partial,))
+        ),
+        None,
+    )
+    if state is None:
+        return None
+    output_buffer = state._moe_tail_output_buf
+    flags = state._producer_direct_ready_flags
+    gather_flags = state._moe_tail_ready_flags
+    if (
+        output_buffer is None
+        or output_buffer.shape[0] < partial.shape[0]
+        or flags is None
+        or flags.shape[0] < 24
+        or gather_flags is None
+        or gather_flags.shape[0] < 128
+    ):
+        return None
+    protected = (state._input_buf, state._producer_direct_scratch_buf, output_buffer)
+    for tensor in (block_residual, *weights):
+        if any(
+            buffer is not None and _overlaps(tensor, buffer) for buffer in protected
+        ):
+            return None
+    if residual is not None:
+        for buffer in protected:
+            if (
+                buffer is not None
+                and _overlaps(residual, buffer)
+                and not (
+                    buffer is output_buffer and residual.data_ptr() == buffer.data_ptr()
+                )
+            ):
+                return None
+
+    from tokenspeed_kernel.ops.residual import attn_res_fwd, attn_res_fwd_available
+
+    rows = partial.shape[0] // 8
+    partition = rows * 7168
+    first_row = state.rank_in_group * rows
+    history = block_residual[:, first_row : first_row + rows]
+    if not attn_res_fwd_available(
+        partial[:rows],
+        history,
+        res_weight,
+        rms_weight,
+        eps,
+        out_norm_weight=out_norm_weight,
+        out_norm_eps=out_norm_eps,
+        delta=None,
+        num_valid_blocks=num_valid_blocks,
+        block_write_idx=-1,
+    ):
+        return None
+
+    # Resolve the gfx950 helper before either collective publishes an epoch.
+    global _attn_res_mix_gfx950
+    from tokenspeed_kernel_amd.ops.gfx950.attention.kda.attn_res import (
+        _attn_res_mix_gfx950,
+    )
+
+    prefix = torch.empty_like(partial[:rows])
+    output = output_buffer[: partial.shape[0]]
+    programs = min(24, (partition + 2047) // 2048)
+    iris_attention_reduce_scatter_gluon_kernel[(programs,)](
+        partial,
+        residual,
+        prefix,
+        flags,
+        *state._heap_base_addresses,
+        RANK=state.rank_in_group,
+        PARTITION_ELEMENTS=partition,
+        BLOCK_ELEMENTS=2048,
+        NUM_PROGRAMS=programs,
+        NUM_WARPS=4,
+        HAS_RESIDUAL=residual is not None,
+        num_warps=4,
+    )
+    # The ordinary mixer is faster in the middle token range. At larger sizes,
+    # longer histories also need enough rows to amortize live peer pointers.
+    fuse_mix = (partial.shape[0] < 1024 or partial.shape[0] >= 4096) and (
+        num_valid_blocks <= 6 or (partial.shape[0] >= 7680 and num_valid_blocks <= 8)
+    )
+    if fuse_mix:
+        gather_programs = min(128, rows)
+        num_subgroups = 8 if num_valid_blocks <= 7 else 4
+        iris_attention_mix_push_gluon_kernel[(gather_programs,)](
+            prefix,
+            output,
+            block_residual,
+            res_weight,
+            rms_weight,
+            out_norm_weight,
+            gather_flags,
+            *state._heap_base_addresses,
+            RANK=state.rank_in_group,
+            LOCAL_ROWS=rows,
+            STRIDE_BLOCK_T=block_residual.stride(1),
+            STRIDE_BLOCK_N=block_residual.stride(0),
+            NUM_VALID_BLOCKS=num_valid_blocks,
+            SCORE_EPS=eps,
+            OUTPUT_EPS=out_norm_eps,
+            NUM_PROGRAMS=gather_programs,
+            NUM_WARPS=num_subgroups,
+            num_warps=num_subgroups,
+        )
+    else:
+        # Longer histories favor the existing mixer without persistent peer
+        # pointers occupying registers throughout the candidate reductions.
+        mixed = attn_res_fwd(
+            prefix,
+            history,
+            res_weight,
+            rms_weight,
+            eps,
+            out_norm_weight=out_norm_weight,
+            out_norm_eps=out_norm_eps,
+            delta=None,
+            num_valid_blocks=num_valid_blocks,
+            block_write_idx=-1,
+        )
+        gather_programs = min(32, (partition + 2047) // 2048)
+        iris_attention_push_gather_gluon_kernel[(gather_programs,)](
+            mixed,
+            output,
+            gather_flags,
+            *state._heap_base_addresses,
+            RANK=state.rank_in_group,
+            PARTITION_ELEMENTS=partition,
+            BLOCK_ELEMENTS=2048,
+            NUM_PROGRAMS=gather_programs,
+            NUM_WARPS=4,
+            num_warps=4,
+        )
+    return prefix, output
