@@ -88,7 +88,7 @@ or move gfx950 Gluon code into the common solution files.
 
 The token-sharded MoE tail follows this rule: `MoETailRequirement` describes
 maximum rows and output widths; `IrisAllReduceWorkspace.moe_tail` owns the
-borrowed result and gather flags; `ops/moe/token_sharded.py` is the runtime's
+borrowed result and gather flags; `ops/moe/__init__.py` exposes the runtime's
 vendor-neutral entry. The Iris MoE solution checks producer ownership and
 permitted aliases before loading its gfx950 device implementation. Unsupported
 inputs return `None` before launch, leaving the caller's existing reduction and

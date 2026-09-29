@@ -161,12 +161,12 @@ def iris_kimi3_moe_tail(
                 ):
                     return None
 
+    from tokenspeed_kernel.ops.gemm.kimi3 import kimi3_latent_projection
+    from tokenspeed_kernel.ops.layernorm.triton import rmsnorm
     from tokenspeed_kernel_amd.ops.gfx950.communication.moe_prefill import (
         iris_moe_add_push_gather_gluon_kernel,
         iris_moe_reduce_scatter_gluon_kernel,
     )
-    from tokenspeed_kernel.ops.gemm.kimi3 import kimi3_latent_projection
-    from tokenspeed_kernel.ops.layernorm.triton import rmsnorm
 
     routed = scratch[:routed_elements].view(local_rows, 3584)
     shared = scratch[routed_elements : routed_elements + shared_elements].view(

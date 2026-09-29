@@ -252,6 +252,26 @@ def test_absent_optional_package_declines_before_preparation(monkeypatch):
     )
 
 
+def test_token_sharded_moe_public_api_preserves_arguments(monkeypatch):
+    from tokenspeed_kernel.ops import moe
+    from tokenspeed_kernel.ops.moe import iris as iris_moe
+
+    monkeypatch.setattr(moe, "current_platform", lambda: SimpleNamespace(is_cdna4=True))
+    output = object()
+    run = Mock(return_value=output)
+    monkeypatch.setattr(iris_moe, "iris_kimi3_moe_tail", run)
+    routed, shared, prefix, weight, group = (object() for _ in range(5))
+    assert (
+        moe.token_sharded_moe_tail(
+            routed, shared, prefix, weight, norm_weight=None, eps=None, group=group
+        )
+        is output
+    )
+    run.assert_called_once_with(
+        routed, shared, prefix, weight, norm_weight=None, eps=None, group=group
+    )
+
+
 def test_public_import_does_not_load_optional_collective_implementations():
     code = """
 import sys

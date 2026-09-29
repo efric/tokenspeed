@@ -53,7 +53,7 @@ must complete before cache sizing and graph capture.
 for the measured TP8 BF16 token-sharded MoE domain. It extends the prepared
 producer capacity but does not widen ordinary all-reduce admission. Its gfx950
 kernels are in `communication/moe_prefill.py` in the AMD package; the model
-calls the vendor-neutral `ops/moe/token_sharded.py` entry point.
+calls the vendor-neutral `ops/moe/__init__.py` entry point.
 
 An opaque handle owns the existing cached solution state. Compatible calls reuse
 it; larger demands cannot grow an existing heap. Physical backing capacity does

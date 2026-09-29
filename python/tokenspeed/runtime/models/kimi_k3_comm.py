@@ -59,11 +59,11 @@ from tokenspeed_kernel.ops.communication.multimem import (
     multimem_prealloc,
     multimem_stage,
 )
+from tokenspeed_kernel.ops.moe import token_sharded_moe_tail
 from tokenspeed_kernel.ops.moe.latent_tail import (
     KimiK3LatentTailOp,
     latent_tail_supported,
 )
-from tokenspeed_kernel.ops.moe.token_sharded import token_sharded_moe_tail
 from tokenspeed_kernel.ops.residual.attnres import AttnResEpilogue
 from tokenspeed_kernel.platform import current_platform
 

@@ -29,7 +29,8 @@ import tokenspeed_kernel.ops.moe.marlin  # noqa: F401
 import tokenspeed_kernel.ops.moe.mega_moe  # noqa: F401
 import tokenspeed_kernel.ops.moe.triton  # noqa: F401
 import torch
-from tokenspeed_kernel.platform import pdl_enabled
+import torch.distributed as dist
+from tokenspeed_kernel.platform import current_platform, pdl_enabled
 from tokenspeed_kernel.profiling import ShapeCapture, kernel_scope
 from tokenspeed_kernel.registry import KernelRegistry
 from tokenspeed_kernel.selection import select_kernel
@@ -44,6 +45,7 @@ __all__ = [
     "moe_plan",
     "moe_process_weights",
     "moe_topk",
+    "token_sharded_moe_tail",
 ]
 
 from tokenspeed_kernel.ops.moe.latent_decode import (  # noqa: E402
@@ -58,6 +60,47 @@ from tokenspeed_kernel.ops.moe.sigmoid_topk import (  # noqa: E402
     _moe_sigmoid_bias_topk,
 )
 from tokenspeed_kernel.ops.moe.softmax_topk import _moe_softmax_topk  # noqa: E402
+
+
+def token_sharded_moe_tail(
+    routed_partial: torch.Tensor,
+    shared_partial: torch.Tensor,
+    residual: torch.Tensor,
+    projection_weight: torch.Tensor,
+    *,
+    norm_weight: torch.Tensor | None,
+    eps: float | None,
+    group: dist.ProcessGroup,
+) -> torch.Tensor | None:
+    """Return a borrowed reduced/projected result, or None for caller fallback.
+
+    Args:
+        routed_partial: Producer-owned routed projection partial ``[M, 3584]``.
+        shared_partial: Consecutive producer-owned shared partial ``[M, 7168]``.
+        residual: Replicated ``[M, 7168]`` prefix.
+        projection_weight: Replicated BF16 up-projection weight.
+        norm_weight: Optional routed RMSNorm weight; present with ``eps``.
+        eps: Optional routed RMSNorm epsilon; present with ``norm_weight``.
+        group: Process group owning the prepared producer buffers.
+
+    Returns:
+        Borrowed ``[M, 7168]`` result until the next tail on this group, or
+        None so the caller retains its ordinary collective and projection
+        fallback. The implementation does not mutate producer-owned partials.
+    """
+    if not current_platform().is_cdna4:
+        return None
+    from tokenspeed_kernel.ops.moe.iris import iris_kimi3_moe_tail
+
+    return iris_kimi3_moe_tail(
+        routed_partial,
+        shared_partial,
+        residual,
+        projection_weight,
+        norm_weight=norm_weight,
+        eps=eps,
+        group=group,
+    )
 
 
 def _assert_indices_in_range(
