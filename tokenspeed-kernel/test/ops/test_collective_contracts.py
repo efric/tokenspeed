@@ -291,12 +291,13 @@ def test_public_import_does_not_load_optional_collective_implementations():
 import sys
 from tokenspeed_kernel.ops import communication
 before = set(sys.modules)
-from tokenspeed_kernel.ops.communication import iris_prefill, prefill
-from tokenspeed_kernel.ops.moe import iris as iris_moe, token_sharded
+from tokenspeed_kernel.ops.communication import iris_prefill
+from tokenspeed_kernel.ops import moe
+from tokenspeed_kernel.ops.moe import iris as iris_moe
 assert iris_prefill.iris_attention_prefill_mix
-assert prefill.attention_prefill_mix
+assert communication.attention_prefill_mix
 assert iris_moe.iris_kimi3_moe_tail
-assert token_sharded.token_sharded_moe_tail
+assert moe.token_sharded_moe_tail
 assert 'iris' not in sys.modules
 assert 'tokenspeed_kernel_amd.ops.gfx950.communication.all_reduce' not in sys.modules
 assert 'tokenspeed_kernel_amd.ops.gfx950.communication.attnres' not in sys.modules

@@ -95,7 +95,7 @@ inputs return `None` before launch, leaving the caller's existing reduction and
 projection path intact.
 
 Attention prefill uses the same prepared producer input and MoE result workspace,
-without another symmetric allocation. `ops/communication/prefill.py` owns the
+without another symmetric allocation. The public communication API owns the
 semantic row windows and optional fallback. `iris_prefill.py` checks the exact
 group, producer ownership, tensor geometry, and aliasing before it imports
 gfx950 kernels. The supported mixer reduce-scatters the projection, mixes the

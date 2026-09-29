@@ -48,6 +48,9 @@ import torch.distributed as dist
 from tokenspeed_kernel.ops.activation.triton import add3
 from tokenspeed_kernel.ops.communication import (
     allreduce_fusion_lane,
+    attention_prefill_mix,
+    attention_prefill_projection_supported,
+    attention_prefill_sharded_supported,
     bind_residual_all_reduce,
     prepare_residual_all_reduce,
 )
@@ -58,11 +61,6 @@ from tokenspeed_kernel.ops.communication.multimem import (
     multimem_available,
     multimem_prealloc,
     multimem_stage,
-)
-from tokenspeed_kernel.ops.communication.prefill import (
-    attention_prefill_mix,
-    attention_prefill_projection_supported,
-    attention_prefill_sharded_supported,
 )
 from tokenspeed_kernel.ops.moe import token_sharded_moe_tail
 from tokenspeed_kernel.ops.moe.latent_tail import (

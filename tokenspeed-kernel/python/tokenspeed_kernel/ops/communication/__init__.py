@@ -41,6 +41,86 @@ from tokenspeed_kernel.platform import current_platform, pdl_enabled
 _ALLREDUCE_FUSION_LANE: torch.Tensor | None = None
 
 
+def attention_prefill_projection_supported(rows: int, dtype: torch.dtype) -> bool:
+    """Whether a prepared producer is in the supported prefill window.
+
+    Args:
+        rows: Number of attention projection rows on every rank.
+        dtype: Projection dtype.
+
+    Returns:
+        Whether the CDNA4 BF16 producer path covers this shape.
+    """
+    return (
+        current_platform().is_cdna4 and dtype == torch.bfloat16 and 16 <= rows <= 8192
+    )
+
+
+def attention_prefill_sharded_supported(rows: int) -> bool:
+    """Whether token rows can be assigned evenly to the eight-rank mixer.
+
+    Args:
+        rows: Number of attention projection rows on every rank.
+
+    Returns:
+        Whether the mixer may keep the residual token-sharded.
+    """
+    return 512 <= rows <= 8192 and rows % 8 == 0
+
+
+def attention_prefill_mix(
+    partial: torch.Tensor,
+    residual: torch.Tensor | None,
+    block_residual: torch.Tensor,
+    res_weight: torch.Tensor,
+    rms_weight: torch.Tensor,
+    *,
+    eps: float,
+    out_norm_weight: torch.Tensor,
+    out_norm_eps: float,
+    num_valid_blocks: int,
+    group: dist.ProcessGroup,
+) -> tuple[torch.Tensor, torch.Tensor] | None:
+    """Mix a prepared attention projection into an AttnRes activation.
+
+    Args:
+        partial: Prepared local BF16 projection ``[M, 7168]``.
+        residual: Replicated BF16 prefix, or None on a block-write layer.
+        block_residual: Replicated block-major history ``[K, M, 7168]``.
+        res_weight: AttnRes score projection weight.
+        rms_weight: AttnRes score RMSNorm weight.
+        eps: Score RMSNorm epsilon.
+        out_norm_weight: Output RMSNorm weight.
+        out_norm_eps: Output RMSNorm epsilon.
+        num_valid_blocks: Number of leading history blocks to mix.
+        group: The prepared eight-rank attention process group.
+
+    Returns:
+        An owned ``[M/8, 7168]`` residual shard and borrowed replicated
+        activation, or None so the caller retains ordinary reduction and
+        AttnRes. Consume the activation before this group's next prefill mix
+        or token-sharded MoE tail overwrites its storage.
+    """
+    if not current_platform().is_cdna4:
+        return None
+    from tokenspeed_kernel.ops.communication.iris_prefill import (
+        iris_attention_prefill_mix,
+    )
+
+    return iris_attention_prefill_mix(
+        partial,
+        residual,
+        block_residual,
+        res_weight,
+        rms_weight,
+        eps=eps,
+        out_norm_weight=out_norm_weight,
+        out_norm_eps=out_norm_eps,
+        num_valid_blocks=num_valid_blocks,
+        group=group,
+    )
+
+
 def allreduce_fusion_lane(
     like: torch.Tensor,
     width: int,
@@ -254,9 +334,13 @@ def allgather_dual_rmsnorm(
 __all__ = [
     "AllReducePreparation",
     "AllReduceRequirement",
+    "MoETailRequirement",
     "PackedAllReduceRequirement",
     "DEFAULT_PRODUCER_DIRECT_MAX_BYTES",
     "acquire_symm_outputs",
+    "attention_prefill_mix",
+    "attention_prefill_projection_supported",
+    "attention_prefill_sharded_supported",
     "all_reduce",
     "all_reduce_can_run",
     "all_reduce_capacity",

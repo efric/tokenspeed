@@ -356,7 +356,7 @@ def test_iris_lamport_requires_attention_and_moe_tp8(
 def test_attention_prefill_producer_window(
     monkeypatch, rows, is_prefill, sharded_moe_supported, eligible
 ):
-    from tokenspeed_kernel.ops.communication import prefill
+    from tokenspeed_kernel.ops import communication
 
     from tokenspeed.runtime.layers.dense import UnquantizedLinearMethod
     from tokenspeed.runtime.models import kimi_k3_comm as module
@@ -379,7 +379,7 @@ def test_attention_prefill_producer_window(
     destination = Mock()
     acquire = Mock(return_value=(destination,))
     monkeypatch.setattr(
-        prefill, "current_platform", lambda: SimpleNamespace(is_cdna4=True)
+        communication, "current_platform", lambda: SimpleNamespace(is_cdna4=True)
     )
     monkeypatch.setattr(
         module, "can_acquire_all_reduce_outputs", Mock(return_value=True)
@@ -467,7 +467,8 @@ def test_attention_prefill_fallback_preserves_residual_ownership(
     ],
 )
 def test_attention_prefill_mix_window(monkeypatch, rows, eligible):
-    from tokenspeed_kernel.ops.communication import iris_prefill, prefill
+    from tokenspeed_kernel.ops import communication
+    from tokenspeed_kernel.ops.communication import iris_prefill
 
     from tokenspeed.runtime.models import kimi_k3_comm as module
 
@@ -481,7 +482,7 @@ def test_attention_prefill_mix_window(monkeypatch, rows, eligible):
     expected = (object(), object())
     operation = Mock(return_value=expected)
     monkeypatch.setattr(
-        prefill, "current_platform", lambda: SimpleNamespace(is_cdna4=True)
+        communication, "current_platform", lambda: SimpleNamespace(is_cdna4=True)
     )
     monkeypatch.setattr(iris_prefill, "iris_attention_prefill_mix", operation)
     monkeypatch.setattr(module, "_get_process_group", lambda _: "owner")

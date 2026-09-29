@@ -9,9 +9,8 @@ or epilogue scratch.
 
 | Owner | Responsibility |
 | --- | --- |
-| Public communication API | Preparation, ordinary reduction and bound residual operations |
+| Public communication API | Preparation, ordinary reduction, bound residual and attention-prefill operations |
 | `_contracts.py` | Vendor-neutral capacity demands and prepared-implementation selection guard |
-| `prefill.py` | Vendor-neutral attention-prefill admission and semantic result |
 | `ops/residual/attnres.py` | AttnRes partial/weight contract and standalone composition |
 | `iris.py`, `iris_prefill.py`, `cute.py`, `trtllm.py` | Optional solution adapters |
 | `_iris/adapter.py` | Iris handle, preparation, eligibility and operation adapter |
