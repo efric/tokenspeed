@@ -1531,11 +1531,11 @@ class IrisAllReduce(object):
         return hidden, residual_out
 
 
-# CDNA4 token-sharded MoE prefill collectives.
+# CDNA4 token-sharded MoE collectives.
 
 
 @gluon.jit
-def _prefill_store_completion(
+def _token_shard_store_completion(
     flags,
     peer_flags,
     block_id,
@@ -1560,7 +1560,7 @@ def _prefill_store_completion(
 
 
 @gluon.jit
-def _prefill_entry_barrier(
+def _token_shard_entry_barrier(
     flags,
     peer_flags,
     block_id,
@@ -1653,7 +1653,7 @@ def iris_moe_reduce_scatter_gluon_kernel(
     epoch = (
         gl.atomic_add(flags + block_id * 8 + RANK, 1, sem="relaxed", scope="gpu") + 1
     )
-    _prefill_entry_barrier(flags, peer_flags, block_id, epoch, RANK, NUM_WARPS)
+    _token_shard_entry_barrier(flags, peer_flags, block_id, epoch, RANK, NUM_WARPS)
     FIRST_ELEMENTS: gl.constexpr = ROWS // 8 * FIRST_WIDTH
     SECOND_ELEMENTS: gl.constexpr = ROWS // 8 * SECOND_WIDTH
     PARTITION_ELEMENTS: gl.constexpr = FIRST_ELEMENTS + SECOND_ELEMENTS
@@ -1758,7 +1758,7 @@ def iris_moe_add_push_gather_gluon_kernel(
                 mask,
                 cache=".wt",
             )
-    _prefill_store_completion(flags, peer_flags, block_id, epoch, RANK, NUM_WARPS)
+    _token_shard_store_completion(flags, peer_flags, block_id, epoch, RANK, NUM_WARPS)
 
 
 @triton.jit
