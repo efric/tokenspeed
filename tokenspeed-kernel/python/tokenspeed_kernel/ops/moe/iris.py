@@ -159,7 +159,7 @@ def iris_kimi3_moe_tail(
                 ):
                     return None
 
-    from tokenspeed_kernel.ops.communication._iris.prefill import (
+    from tokenspeed_kernel.ops.communication.iris import (
         iris_moe_add_push_gather_gluon_kernel,
         iris_moe_reduce_scatter_gluon_kernel,
     )
