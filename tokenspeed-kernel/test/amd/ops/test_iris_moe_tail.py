@@ -18,7 +18,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-"""Producer ownership, lifetime and ordering of the token-sharded K3 tail."""
+"""Verify the MoE tail when each rank handles consecutive token rows."""
 
 import socket
 from datetime import timedelta
@@ -51,10 +51,12 @@ def _moe_tail_worker(rank: int, port: int) -> None:
 
 def _check_moe_tail(rank: int, device: torch.device, group: dist.ProcessGroup) -> None:
     from tokenspeed_kernel.ops.communication import triton as comm
-    from tokenspeed_kernel.ops.communication.iris import create_iris_ar_rmsnorm_state
+    from tokenspeed_kernel.ops.communication.iris import (
+        create_iris_ar_rmsnorm_state,
+        iris_kimi3_moe_tail,
+    )
     from tokenspeed_kernel.ops.gemm.kimi3 import kimi3_latent_projection_add3
     from tokenspeed_kernel.ops.layernorm.triton import rmsnorm
-    from tokenspeed_kernel.ops.moe.iris import iris_kimi3_moe_tail
 
     backing = comm.TritonCommState(
         group=group,
@@ -362,7 +364,7 @@ def _check_moe_tail(rank: int, device: torch.device, group: dist.ProcessGroup) -
 
 @pytest.mark.skipif(
     not current_platform().is_cdna4 or torch.cuda.device_count() < 8,
-    reason="Token-sharded Iris MoE requires eight CDNA4 GPUs",
+    reason="Iris MoE tail assigns token rows across eight CDNA4 GPUs",
 )
 def test_iris_moe_tail() -> None:
     pytest.importorskip("tokenspeed_kernel.ops.communication.iris")

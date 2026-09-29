@@ -80,6 +80,7 @@ __all__ = [
     "create_iris_rsag_state",
     "create_iris_ar_rmsnorm_state",
     "iris_allreduce_residual_rmsnorm",
+    "iris_kimi3_moe_tail",
     "IRIS_AR_STATES",
     "IRIS_AR_RMSNORM_STATES",
 ]
@@ -985,8 +986,8 @@ class IrisAllReduce(object):
             if producer_direct_max_numel
             else None
         )
-        # Keep the borrowed output separate from producer and collective scratch.
-        # Allocate before cache sizing and graph capture.
+        # Reserve the reusable result separately from producer and collective
+        # scratch before cache sizing and graph capture.
         self._moe_tail_output_buf = (
             self._ctx.empty((moe_tail_max_rows, moe_config.hidden_size), dtype=dtype)
             if moe_tail_max_rows
@@ -1531,11 +1532,11 @@ class IrisAllReduce(object):
         return hidden, residual_out
 
 
-# CDNA4 token-sharded MoE collectives.
+# CDNA4 MoE collectives over consecutive token rows assigned by rank.
 
 
 @gluon.jit
-def _token_shard_store_completion(
+def _row_partition_store_completion(
     flags,
     peer_flags,
     block_id,
@@ -1560,7 +1561,7 @@ def _token_shard_store_completion(
 
 
 @gluon.jit
-def _token_shard_entry_barrier(
+def _row_partition_entry_barrier(
     flags,
     peer_flags,
     block_id,
@@ -1614,6 +1615,15 @@ def _peer_flags(pointer, heaps, RANK: gl.constexpr, NUM_WARPS: gl.constexpr):
     return (bases + offset).to(gl.pointer_type(gl.uint32))
 
 
+# Rank q owns L = ROWS/8 consecutive rows. For local row u and coordinate j,
+# r = q*L + u, reduce that row from all eight producer ranks:
+#
+#   scratch_routed_q[u,j] = BF16(sum_p FP32(routed_partial_p[r,j]))
+#   scratch_shared_q[u,j] = BF16(sum_p FP32(shared_partial_p[r,j]))
+#
+# The sum uses the kernel's fixed FP32 tree. Each peer's input packs all
+# routed rows before all shared rows; scratch packs only q's reduced rows
+# in that order.
 @gluon.jit
 def iris_moe_reduce_scatter_gluon_kernel(
     input_ptr,
@@ -1653,7 +1663,7 @@ def iris_moe_reduce_scatter_gluon_kernel(
     epoch = (
         gl.atomic_add(flags + block_id * 8 + RANK, 1, sem="relaxed", scope="gpu") + 1
     )
-    _token_shard_entry_barrier(flags, peer_flags, block_id, epoch, RANK, NUM_WARPS)
+    _row_partition_entry_barrier(flags, peer_flags, block_id, epoch, RANK, NUM_WARPS)
     FIRST_ELEMENTS: gl.constexpr = ROWS // 8 * FIRST_WIDTH
     SECOND_ELEMENTS: gl.constexpr = ROWS // 8 * SECOND_WIDTH
     PARTITION_ELEMENTS: gl.constexpr = FIRST_ELEMENTS + SECOND_ELEMENTS
@@ -1688,6 +1698,14 @@ def iris_moe_reduce_scatter_gluon_kernel(
         gl.amd.cdna4.buffer_store(reduced, scratch_ptr, offsets, mask, cache=".wt")
 
 
+# Rank q owns L = M/8 consecutive rows. For local row u, r = q*L + u,
+# and every destination rank p:
+#
+#   output_p[r,j] = BF16((FP32(prefix_q[r,j])
+#                         + FP32(projected_q[u,j]))
+#                         + FP32(shared_reduced_q[u,j]))
+#
+# Rank q pushes its rows to every peer; other ranks write disjoint rows.
 @gluon.jit
 def iris_moe_add_push_gather_gluon_kernel(
     projection_ptr,
@@ -1758,7 +1776,7 @@ def iris_moe_add_push_gather_gluon_kernel(
                 mask,
                 cache=".wt",
             )
-    _token_shard_store_completion(flags, peer_flags, block_id, epoch, RANK, NUM_WARPS)
+    _row_partition_store_completion(flags, peer_flags, block_id, epoch, RANK, NUM_WARPS)
 
 
 @triton.jit
@@ -3409,3 +3427,169 @@ def iris_allreduce_residual_rmsnorm(
         norm_out=norm_out,
         residual_out=residual_out,
     )
+
+
+def iris_kimi3_moe_tail(
+    routed_partial: torch.Tensor,
+    shared_partial: torch.Tensor,
+    prefix: torch.Tensor,
+    projection_weight: torch.Tensor,
+    *,
+    norm_weight: torch.Tensor | None,
+    eps: float | None,
+    group: dist.ProcessGroup,
+) -> torch.Tensor | None:
+    """Reduce MoE partials by row, project local rows, and gather the result.
+
+    All eight ranks use identical shapes and call order, each handling M/8 rows.
+    Tensor inputs are contiguous BF16; M is positive and divisible by eight.
+    The prepared producer inputs are preserved.
+
+    Args:
+        routed_partial: Prepared routed partial, ``[M, 3584]``.
+        shared_partial: Prepared shared partial, ``[M, 7168]``, immediately
+            following ``routed_partial`` in Iris storage.
+        prefix: Replicated residual, ``[M, 7168]``. An exact alias with
+            the result buffer is consumed before overwrite; other overlaps
+            are rejected.
+        projection_weight: Replicated ``[7168, 3584]`` weight.
+        norm_weight: RMSNorm ``[3584]`` weight, or None.
+        eps: Positive RMSNorm epsilon, or None without normalization.
+        group: Eight-rank group owning the prepared Iris buffers.
+
+    Returns:
+        BF16 ``[M, 7168]`` view of the reusable result buffer, or None
+        before launch if unsupported. The next MoE tail can overwrite it;
+        clone it to retain the value. Calls sharing the state must run in
+        order on one stream, including graph capture and replay.
+    """
+    if not current_platform().is_cdna4 or routed_partial.ndim != 2:
+        return None
+    rows, latent = routed_partial.shape
+    if (
+        rows <= 0
+        or rows % 8 != 0
+        or latent != 3584
+        or shared_partial.shape != (rows, 7168)
+        or prefix.shape != (rows, 7168)
+        or projection_weight.shape != (7168, 3584)
+        or group.size() != 8
+    ):
+        return None
+    tensors = (routed_partial, shared_partial, prefix, projection_weight)
+    if norm_weight is not None:
+        if (
+            norm_weight.shape != (3584,)
+            or eps is None
+            or not math.isfinite(eps)
+            or eps <= 0
+        ):
+            return None
+        tensors += (norm_weight,)
+    elif eps is not None:
+        return None
+    if any(
+        not tensor.is_cuda
+        or tensor.device != routed_partial.device
+        or tensor.dtype != torch.bfloat16
+        or not tensor.is_contiguous()
+        for tensor in tensors
+    ):
+        return None
+
+    # Reuse the state that owns both prepared outputs.
+    state = next(
+        (
+            candidate
+            for candidate in IRIS_AR_STATES.values()
+            if candidate.group is group
+            and candidate.owns_outputs((routed_partial, shared_partial))
+        ),
+        None,
+    )
+    if state is None:
+        return None
+    local_rows = rows // 8
+    routed_elements = local_rows * 3584
+    shared_elements = local_rows * 7168
+    scratch = state._producer_direct_scratch_buf
+    flags = state._producer_direct_ready_flags
+    programs = 24
+    gather_programs = 128
+    result_buffer = state._moe_tail_output_buf
+    gather_flags = state._moe_tail_ready_flags
+    if (
+        scratch is None
+        or scratch.numel() < routed_elements + shared_elements
+        or flags is None
+        or flags.shape[0] < programs
+        or gather_flags is None
+        or gather_flags.shape[0] < gather_programs
+        or result_buffer is None
+        or result_buffer.shape[0] < rows
+    ):
+        return None
+    # Reject unsafe overlaps before launching either collective.
+    for tensor in tensors[2:]:
+        start = tensor.data_ptr()
+        end = start + tensor.numel() * tensor.element_size()
+        for buffer in (state._input_buf, scratch, result_buffer):
+            buffer_start = buffer.data_ptr()
+            buffer_end = buffer_start + buffer.numel() * buffer.element_size()
+            if start < buffer_end and buffer_start < end:
+                # Only exact prefix aliasing preserves row ownership.
+                if not (
+                    buffer is result_buffer
+                    and tensor is prefix
+                    and start == buffer_start
+                ):
+                    return None
+
+    from tokenspeed_kernel.ops.gemm.kimi3 import kimi3_latent_projection
+    from tokenspeed_kernel.ops.layernorm.triton import rmsnorm
+
+    routed = scratch[:routed_elements].view(local_rows, 3584)
+    shared = scratch[routed_elements : routed_elements + shared_elements].view(
+        local_rows, 7168
+    )
+    projected = torch.empty(
+        (local_rows, 7168), device=prefix.device, dtype=prefix.dtype
+    )
+    output = result_buffer[:rows]
+    iris_moe_reduce_scatter_gluon_kernel[(programs,)](
+        state._input_buf,
+        scratch,
+        flags,
+        *state._heap_base_addresses,
+        RANK=state.rank_in_group,
+        ROWS=rows,
+        FIRST_WIDTH=3584,
+        SECOND_WIDTH=7168,
+        BLOCK_ELEMENTS=2048,
+        NUM_PROGRAMS=programs,
+        NUM_WARPS=4,
+        num_warps=4,
+    )
+    normalized = (
+        rmsnorm(routed, norm_weight, eps, residual=None, out=None)
+        if norm_weight is not None
+        else routed
+    )
+    kimi3_latent_projection(
+        normalized, projection_weight, out=projected, solution="auto"
+    )
+    iris_moe_add_push_gather_gluon_kernel[(gather_programs,)](
+        projected,
+        shared,
+        prefix,
+        output,
+        gather_flags,
+        *state._heap_base_addresses,
+        RANK=state.rank_in_group,
+        PARTITION_ELEMENTS=shared_elements,
+        BLOCK_ELEMENTS=2048,
+        NUM_PROGRAMS=gather_programs,
+        NUM_WARPS=4,
+        num_warps=4,
+    )
+    return output
