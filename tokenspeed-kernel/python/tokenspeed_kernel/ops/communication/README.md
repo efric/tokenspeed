@@ -10,15 +10,23 @@ or epilogue scratch.
 | Owner | Responsibility |
 | --- | --- |
 | Public communication API | Preparation, ordinary reduction and bound residual operations |
+| `_contracts.py` | Vendor-neutral capacity demands and prepared-implementation selection guard |
 | `ops/residual/attnres.py` | AttnRes partial/weight contract and standalone composition |
 | `iris.py`, `cute.py`, `trtllm.py` | Registered solution adapters |
+| `_iris/adapter.py` | Iris handle, preparation, eligibility and operation adapter |
 | `_iris/policy.py` | Supported domains, capacities, measured thresholds and launch geometry |
-| `_iris/context.py` | Optional dependency context, process heap lifetime and peer mapping |
+| `_iris/context.py` | Iris dependency probes, process heap lifetime and peer mapping |
 | `_iris/workspace.py` | Separate staged, two-stage, producer, Lamport and AttnRes resource records |
 | `_iris/all_reduce.py`, `epilogues.py`, `rsag.py` | Host launch adapters |
 | `_iris/triton.py` | Portable RMA device kernels |
 | `tokenspeed_kernel_amd/ops/gfx950/communication/` | gfx950 Gluon device implementations |
 | `thirdparty/iris.py` | External Iris imports and Triton import compatibility |
+
+The legacy `TritonCommState` stays with `communication/triton.py` because the
+Triton RS/AG path uses it on both vendors. Iris's public all-reduce handle is
+smaller and remains inside `_iris/adapter.py`; the legacy Triton exports accept
+the same state fields. No generic communication module owns Iris package probes
+or Iris physical capacities.
 
 The AMD package takes device pointers and launch constants. It imports neither
 Iris nor `tokenspeed_kernel`. Public imports do not load Iris or AMD collective

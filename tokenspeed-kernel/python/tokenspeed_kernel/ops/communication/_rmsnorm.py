@@ -21,7 +21,7 @@
 """Residual RMSNorm selection; vendor option/fallback contracts stay intact."""
 
 import torch
-from tokenspeed_kernel.ops.communication._selection import select_collective
+from tokenspeed_kernel.ops.communication._contracts import select_collective
 from tokenspeed_kernel.platform import current_platform
 
 

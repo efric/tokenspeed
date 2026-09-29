@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import torch
 import torch.distributed as dist
-from tokenspeed_kernel.ops.communication._all_reduce import (
+from tokenspeed_kernel.ops.communication._contracts import (
+    AllReducePreparation,
+    AllReduceRequirement,
+    PackedAllReduceRequirement,
+)
+from tokenspeed_kernel.ops.communication._iris.adapter import (
     DEFAULT_PRODUCER_DIRECT_MAX_BYTES,
     acquire_symm_outputs,
     all_reduce,
@@ -16,11 +21,6 @@ from tokenspeed_kernel.ops.communication._all_reduce import (
     prepare_all_reduce_handle,
     producer_all_reduce_available,
     symm_outputs_can_run,
-)
-from tokenspeed_kernel.ops.communication._contracts import (
-    AllReducePreparation,
-    AllReduceRequirement,
-    PackedAllReduceRequirement,
 )
 from tokenspeed_kernel.ops.communication._residual import (
     bind_residual_all_reduce,

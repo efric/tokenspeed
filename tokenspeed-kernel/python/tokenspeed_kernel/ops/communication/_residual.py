@@ -29,7 +29,7 @@ from dataclasses import dataclass
 
 import torch
 import torch.distributed as dist
-from tokenspeed_kernel.ops.communication._selection import select_collective
+from tokenspeed_kernel.ops.communication._contracts import select_collective
 from tokenspeed_kernel.ops.residual.attnres import AttnResEpilogue
 from tokenspeed_kernel.platform import current_platform
 from tokenspeed_kernel.selection import SelectedKernel

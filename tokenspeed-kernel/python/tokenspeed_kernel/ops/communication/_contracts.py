@@ -27,6 +27,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import torch
+from tokenspeed_kernel.selection import SelectedKernel, select_kernel
+from tokenspeed_kernel.signature import dense_tensor_format, format_signature
 
 if TYPE_CHECKING:
     from tokenspeed_kernel.ops.residual.attnres import AttnResRequirement
@@ -72,3 +74,33 @@ class AllReducePreparation:
     operations: tuple[
         AllReduceRequirement | PackedAllReduceRequirement | AttnResRequirement, ...
     ]
+
+
+def select_collective(mode: str, dtype: torch.dtype, name: str) -> SelectedKernel:
+    """Select a prepared implementation without allowing overrides to change protocol.
+
+    Args:
+        mode: Semantic communication operation.
+        dtype: Payload dtype.
+        name: Winner of the operation's rank-uniform capability/policy checks.
+
+    Returns:
+        The registered callable. An incompatible override raises before launch.
+
+    Collective policy and environment overrides must be identical on every rank.
+    There is no timing-based or pointer-based collective selection here.
+    """
+    selected = select_kernel(
+        "communication",
+        mode,
+        format_signature(input=dense_tensor_format(dtype)),
+        traits={"implementation": name},
+    )
+    # Registry overrides deliberately bypass some trait gates. A collective
+    # override cannot bypass the group's prepared protocol or operand contract.
+    if selected.name != name:
+        raise ValueError(
+            f"collective override {selected.name!r} is incompatible with "
+            f"the prepared implementation {name!r}"
+        )
+    return selected

@@ -282,7 +282,7 @@ def allreduce_residual_rmsnorm(
         token_num, hidden_dim = input_tensor.shape
 
         import tokenspeed_kernel.ops.communication.iris as _iris_mod
-        from tokenspeed_kernel.ops.communication._dependencies import iris_available
+        from tokenspeed_kernel.ops.communication._iris.context import iris_available
 
         if (
             iris_available()

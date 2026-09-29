@@ -57,7 +57,22 @@ __all__ = [
 allreduce_residual_rmsnorm_states = {}
 
 
-from tokenspeed_kernel.ops.communication._state import TritonCommState
+@dataclass
+class TritonCommState:
+    """Legacy Triton collective storage used by AMD and NVIDIA RS/AG."""
+
+    group: dist.ProcessGroup
+    rank_in_group: int
+    world_size: int
+    device: torch.device
+    attnres_max_numel: int
+    enable_lamport: bool
+    max_numel: int
+    max_bytes: int
+    max_token_num: int
+    hidden_dim: int
+    comm_buff: torch.Tensor | None
+    symm_mem_hdl: object | None
 
 
 @dataclass

@@ -23,6 +23,13 @@ load. `thirdparty/iris.py` is the sole external Iris compatibility bridge;
 The AMD device files import their own `_triton.py` bridge and have no reverse
 dependency on `tokenspeed-kernel`.
 
+Only semantic demands and the prepared-implementation guard live in shared
+`_contracts.py`. Iris dependency probes, handle preparation and physical
+capacities live under `_iris/`. The older `TritonCommState` belongs to the
+cross-vendor legacy RS/AG implementation in `triton.py`; the Iris public
+all-reduce handle does not carry its RS/AG buffers. Public handle creation
+still delays Iris heap and gfx950 kernel imports until preparation or launch.
+
 The ordinary path is:
 
 ```text

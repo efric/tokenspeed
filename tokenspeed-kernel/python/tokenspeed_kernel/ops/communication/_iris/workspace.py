@@ -26,11 +26,11 @@ from dataclasses import dataclass
 
 import torch
 import torch.distributed as dist
-from tokenspeed_kernel.ops.communication._dependencies import amd_collectives_available
 from tokenspeed_kernel.ops.communication._iris.context import (
     _get_available_gpu_memory,
     _get_or_create_iris_context,
     _peer_addresses,
+    amd_collectives_available,
 )
 from tokenspeed_kernel.ops.communication._iris.policy import (
     _PRODUCER_DIRECT_DTYPES,

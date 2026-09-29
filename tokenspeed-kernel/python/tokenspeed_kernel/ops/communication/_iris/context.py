@@ -21,12 +21,24 @@
 
 """Process-wide Iris heap lifetime and peer address translation."""
 
+from importlib.util import find_spec
+
 import torch
 
 _iris_ctx_singleton = None
 
 IRIS_AR_STATES: dict = {}
 IRIS_AR_RMSNORM_STATES: dict = {}
+
+
+def iris_available() -> bool:
+    """Probe the optional Iris package without importing its device code."""
+    return find_spec("iris") is not None
+
+
+def amd_collectives_available() -> bool:
+    """Probe the optional dependencies of the Iris gfx950 solution."""
+    return iris_available() and find_spec("tokenspeed_kernel_amd") is not None
 
 
 def _peer_addresses(

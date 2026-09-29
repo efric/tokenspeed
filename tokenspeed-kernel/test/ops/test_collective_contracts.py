@@ -31,15 +31,15 @@ import pytest
 import torch
 from tokenspeed_kernel import selection
 from tokenspeed_kernel.ops import communication
-from tokenspeed_kernel.ops.communication import _all_reduce, _residual
-from tokenspeed_kernel.ops.communication._iris import adapter, policy
-from tokenspeed_kernel.ops.communication._selection import select_collective
+from tokenspeed_kernel.ops.communication import _residual
+from tokenspeed_kernel.ops.communication._contracts import select_collective
+from tokenspeed_kernel.ops.communication._iris import adapter, context, policy
 from tokenspeed_kernel.ops.residual.attnres import AttnResEpilogue, AttnResRequirement
 from tokenspeed_kernel.platform import ArchVersion, current_platform
 
 
 def test_preparation_reuses_storage_and_rejects_late_growth(monkeypatch):
-    monkeypatch.setattr(_all_reduce, "producer_all_reduce_available", lambda: True)
+    monkeypatch.setattr(adapter, "producer_all_reduce_available", lambda: True)
     initialize = Mock()
     monkeypatch.setattr(adapter, "initialize_all_reduce_state", initialize)
     group = SimpleNamespace(size=lambda: 8)
@@ -60,6 +60,7 @@ def test_preparation_reuses_storage_and_rejects_late_growth(monkeypatch):
     handle = communication.prepare_all_reduce_handle(
         preparation=demand, previous=None, **args
     )
+    assert type(handle) is adapter.IrisAllReduceHandle
     assert handle.max_numel == 512 * 1024 // 2
     assert communication.all_reduce_capacity(handle) == 8192 * 10752 * 2
     assert handle.attnres_max_numel == 16 * 7168
@@ -233,11 +234,9 @@ def test_collective_override_cannot_change_prepared_operand_contract(monkeypatch
 
 
 def test_absent_optional_package_declines_before_preparation(monkeypatch):
-    from tokenspeed_kernel.ops.communication import _dependencies
-
-    monkeypatch.setattr(_dependencies, "find_spec", lambda name: None)
+    monkeypatch.setattr(context, "find_spec", lambda name: None)
     monkeypatch.setattr(
-        _all_reduce, "current_platform", lambda: SimpleNamespace(is_cdna4=True)
+        adapter, "current_platform", lambda: SimpleNamespace(is_cdna4=True)
     )
     assert not communication.producer_all_reduce_available()
     assert (

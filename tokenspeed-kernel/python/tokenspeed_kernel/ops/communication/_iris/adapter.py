@@ -19,24 +19,157 @@
 # SOFTWARE.
 
 
-"""Iris state reuse and capability adapters for public communication operations."""
+"""Iris handle preparation, state reuse, and public collective adapters."""
 
 import math
+from dataclasses import dataclass
 
 import torch
 import torch.distributed as dist
-from tokenspeed_kernel.ops.communication._dependencies import (
+from tokenspeed_kernel.ops.communication._contracts import (
+    AllReducePreparation,
+    select_collective,
+)
+from tokenspeed_kernel.ops.communication._iris.context import (
     amd_collectives_available,
     iris_available,
 )
-from tokenspeed_kernel.ops.communication._selection import select_collective
-from tokenspeed_kernel.ops.communication._state import TritonCommState
 from tokenspeed_kernel.platform import current_platform
 
+DEFAULT_PRODUCER_DIRECT_MAX_BYTES = 1024 * 1024
+ORDINARY_ALL_REDUCE_MAX_BYTES = 512 * 1024
 _ALLREDUCE_RESIDUAL_ATTNRES_MAX_TOKENS = 16
 
 
-def all_reduce_can_run(state: TritonCommState, tensor: torch.Tensor, op=None) -> bool:
+@dataclass
+class IrisAllReduceHandle:
+    """Iris storage demands; allocation occurs only during preparation."""
+
+    group: dist.ProcessGroup
+    rank_in_group: int
+    world_size: int
+    device: torch.device
+    attnres_max_numel: int
+    enable_lamport: bool
+    max_numel: int
+    max_bytes: int
+    max_token_num: int
+
+
+def producer_all_reduce_available() -> bool:
+    """Whether the platform has a producer-output collective implementation."""
+    return current_platform().is_cdna4 and amd_collectives_available()
+
+
+def create_all_reduce_handle(
+    group: dist.ProcessGroup,
+    rank_in_group: int,
+    device: torch.device,
+    producer_direct_max_bytes: int,
+) -> object:
+    """Describe default collective storage without allocating a symmetric heap.
+
+    Args:
+        group: Device process group.
+        rank_in_group: This process's group-local rank.
+        device: Device for subsequent workspace preparation.
+        producer_direct_max_bytes: Producer storage capacity in bytes.
+
+    Returns:
+        An opaque descriptor; ordinary admission remains separately capped.
+    """
+    return IrisAllReduceHandle(
+        group=group,
+        rank_in_group=rank_in_group,
+        world_size=group.size(),
+        device=device,
+        max_numel=min(producer_direct_max_bytes, ORDINARY_ALL_REDUCE_MAX_BYTES)
+        // torch.bfloat16.itemsize,
+        max_bytes=producer_direct_max_bytes,
+        attnres_max_numel=0,
+        enable_lamport=False,
+        max_token_num=0,
+    )
+
+
+def prepare_all_reduce_handle(
+    group: dist.ProcessGroup,
+    rank_in_group: int,
+    device: torch.device,
+    preparation: AllReducePreparation,
+    previous: object | None,
+    producer_direct_max_bytes: int,
+) -> object | None:
+    """Prepare group storage before capture, preserving existing compatible handles.
+
+    Args:
+        group: Device process group.
+        rank_in_group: Local rank in group.
+        device: Allocation device.
+        preparation: Semantic operation demands, identical across group members.
+        previous: Already prepared handle, or None on first preparation.
+        producer_direct_max_bytes: Default backing capacity; does not widen ordinary admission.
+
+    Returns:
+        An opaque handle, or None when this implementation cannot prepare it.
+    """
+    if (
+        group.size() <= 1
+        or not producer_all_reduce_available()
+        or preparation.dtype != torch.bfloat16
+    ):
+        return None
+    from tokenspeed_kernel.ops.communication._iris.policy import resolve_capacities
+
+    capacity = resolve_capacities(preparation, group.size(), producer_direct_max_bytes)
+    requested = (
+        capacity.staged_max_numel,
+        capacity.producer_direct_max_numel * preparation.dtype.itemsize,
+        capacity.attnres_max_numel,
+        capacity.attnres_max_rows,
+    )
+    if not any(requested):
+        return None
+    if previous is not None:
+        if previous.enable_lamport != capacity.enable_lamport:
+            raise RuntimeError(
+                "all-reduce buffers were initialized with a different Lamport policy"
+            )
+        available = (
+            previous.max_numel,
+            previous.max_bytes,
+            previous.attnres_max_numel,
+            previous.max_token_num,
+        )
+        if any(have < need for have, need in zip(available, requested)):
+            raise RuntimeError(
+                f"all-reduce buffers were initialized below requested capacities: {available}, {requested}"
+            )
+        initialize_all_reduce_state(previous, preparation.dtype)
+        return previous
+    state = IrisAllReduceHandle(
+        group=group,
+        rank_in_group=rank_in_group,
+        world_size=group.size(),
+        device=device,
+        max_numel=requested[0],
+        max_bytes=requested[1],
+        attnres_max_numel=requested[2],
+        max_token_num=requested[3],
+        enable_lamport=capacity.enable_lamport,
+    )
+    initialize_all_reduce_state(state, preparation.dtype)
+    return state
+
+
+def all_reduce_capacity(handle: object) -> int:
+    """Return prepared producer-output capacity in bytes."""
+    return handle.max_bytes
+
+
+def all_reduce_can_run(
+    state: IrisAllReduceHandle, tensor: torch.Tensor, op=None
+) -> bool:
     if op is None:
         op = torch.distributed.ReduceOp.SUM
     platform = current_platform()
@@ -52,7 +185,7 @@ def all_reduce_can_run(state: TritonCommState, tensor: torch.Tensor, op=None) ->
     )
 
 
-def _iris_state_key(state: TritonCommState, dtype: torch.dtype) -> tuple:
+def _iris_state_key(state: IrisAllReduceHandle, dtype: torch.dtype) -> tuple:
     producer_direct_max_numel = state.max_bytes // dtype.itemsize
     return (
         id(state.group),
@@ -81,7 +214,7 @@ def _iris_state_is_compatible(iris_state, state, dtype: torch.dtype) -> bool:
     )
 
 
-def _get_or_create_iris_state(state: TritonCommState, dtype: torch.dtype):
+def _get_or_create_iris_state(state: IrisAllReduceHandle, dtype: torch.dtype):
     """Return the Iris state sized for this communication backing buffer."""
     import tokenspeed_kernel.ops.communication.iris as _iris_mod
 
@@ -114,7 +247,7 @@ def _get_or_create_iris_state(state: TritonCommState, dtype: torch.dtype):
 
 
 def initialize_all_reduce_state(
-    state: TritonCommState,
+    state: IrisAllReduceHandle,
     dtype: torch.dtype,
 ) -> None:
     """Allocate the backend storage described by an all-reduce state.
@@ -129,7 +262,9 @@ def initialize_all_reduce_state(
     _get_or_create_iris_state(state, dtype)
 
 
-def all_reduce(state: TritonCommState, tensor: torch.Tensor, op=None) -> torch.Tensor:
+def all_reduce(
+    state: IrisAllReduceHandle, tensor: torch.Tensor, op=None
+) -> torch.Tensor:
     assert all_reduce_can_run(state, tensor, op=op)
     platform = current_platform()
     if platform.is_amd:
@@ -147,7 +282,7 @@ def all_reduce(state: TritonCommState, tensor: torch.Tensor, op=None) -> torch.T
 
 
 def symm_outputs_can_run(
-    state: TritonCommState,
+    state: IrisAllReduceHandle,
     shapes: tuple[tuple[int, ...], ...],
     dtype: torch.dtype,
     op=None,
@@ -187,7 +322,7 @@ def symm_outputs_can_run(
 
 
 def acquire_symm_outputs(
-    state: TritonCommState,
+    state: IrisAllReduceHandle,
     shapes: tuple[tuple[int, ...], ...],
     dtype: torch.dtype,
 ) -> tuple[torch.Tensor, ...]:
@@ -201,7 +336,7 @@ def acquire_symm_outputs(
 
 
 def all_reduce_symm_can_run(
-    state: TritonCommState,
+    state: IrisAllReduceHandle,
     tensors: tuple[torch.Tensor, ...],
     op=None,
 ) -> bool:
@@ -220,7 +355,7 @@ def all_reduce_symm_can_run(
 
 
 def all_reduce_symmetric(
-    state: TritonCommState,
+    state: IrisAllReduceHandle,
     tensors: tuple[torch.Tensor, ...],
 ) -> tuple[torch.Tensor, ...]:
     """Reduce consecutive Iris producer outputs in one launch."""
@@ -254,7 +389,7 @@ def allreduce_residual_attnres_max_tokens(world_size: int) -> int:
 
 
 def _all_reduce_residual_attnres_can_run(
-    state: TritonCommState,
+    state: IrisAllReduceHandle,
     partial: torch.Tensor,
     residual: torch.Tensor,
     score_weight: torch.Tensor,
@@ -314,7 +449,7 @@ def _all_reduce_residual_attnres_can_run(
 
 
 def _all_reduce_residual_attnres(
-    state: TritonCommState,
+    state: IrisAllReduceHandle,
     partial: torch.Tensor,
     residual: torch.Tensor,
     score_weight: torch.Tensor,
@@ -370,8 +505,8 @@ def _attnres_comm_state(
     input_tensor: torch.Tensor,
     rank: int,
     group: dist.ProcessGroup,
-) -> TritonCommState:
-    return TritonCommState(
+) -> IrisAllReduceHandle:
+    return IrisAllReduceHandle(
         enable_lamport=False,
         group=group,
         rank_in_group=rank,
@@ -381,9 +516,6 @@ def _attnres_comm_state(
         max_numel=0,
         max_bytes=0,
         max_token_num=input_tensor.shape[0],
-        hidden_dim=0,
-        comm_buff=None,
-        symm_mem_hdl=None,
     )
 
 
