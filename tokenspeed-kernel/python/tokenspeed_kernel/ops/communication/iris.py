@@ -843,8 +843,7 @@ class IrisLL128AllReduce:
             raise ValueError("LL128 rank_in_group does not identify this process")
 
         self._max_tiles = triton.cdiv(max_numel, 512)
-        # Three wave32 batches hold twelve full packets for each 512-BF16 tile.
-        region_bytes = 3 * self.world_size * self._max_tiles * 12 * 128
+        region_bytes = 3 * self.world_size * self._max_tiles * 9 * 128
         if heap_size is None:
             heap_size = max(1 << 28, region_bytes + (16 << 20))
         self._ctx = _get_or_create_iris_context(heap_size)
@@ -854,10 +853,10 @@ class IrisLL128AllReduce:
         dist.all_gather_object(sm_counts, self._ctx.get_cu_count(), group=group)
         self._max_programs = min(sm_counts)
         self._region = self._ctx.zeros(
-            (3, self.world_size, self._max_tiles, 12, 64), dtype=torch.int16
+            (3, self.world_size, self._max_tiles, 9, 64), dtype=torch.int16
         )
         self._epochs = torch.zeros(
-            (self._max_tiles,), dtype=torch.int64, device=self.device
+            (self._max_tiles, 9), dtype=torch.int64, device=self.device
         )
         heap_bases = tuple(
             int(address) for address in self._ctx.get_heap_bases()[group_ranks].tolist()
@@ -2236,16 +2235,18 @@ def iris_stage_one_shot_allreduce_kernel(
 def _iris_ll128_pack_bf16(input_ptr, offsets, valid, epoch, element):
     payload = gl.load(input_ptr + offsets, mask=valid, other=0)
     bits = payload.to(gl.uint16, bitcast=True)
-    flag = (epoch >> (16 * (element[None, :] % 4))).to(gl.uint16)
+    flag = (epoch[:, None] >> (16 * (element[None, :] % 4))).to(gl.uint16)
     return gl.where(element[None, :] < 60, bits, flag)
 
 
 @gluon.jit
 def _iris_ll128_wait_peers(
     region,
-    tile_offset,
+    tile,
     wire_offsets,
-    epoch,
+    packet_masks,
+    packet_epochs,
+    packet_slots,
     element,
     RANK: gl.constexpr,
     WORLD_SIZE: gl.constexpr,
@@ -2256,7 +2257,6 @@ def _iris_ll128_wait_peers(
     for _ in gl.static_range(0, 3 * (WORLD_SIZE - 1)):
         values += (gl.full([4, 64], 0, gl.uint16, LAYOUT),)
     pending = True
-    flag = (epoch >> (16 * (element[None, :] % 4))).to(gl.uint16)
     while pending:
         loaded = ()
         for delta in gl.static_range(1, WORLD_SIZE):
@@ -2264,19 +2264,28 @@ def _iris_ll128_wait_peers(
             for batch in gl.static_range(0, 3):
                 pointer = (
                     region
-                    + tile_offset
-                    + peer * MAX_TILES * 768
+                    + packet_slots[batch][:, None] * WORLD_SIZE * MAX_TILES * 576
+                    + tile * 576
+                    + peer * MAX_TILES * 576
                     + batch * 256
                     + wire_offsets
                 )
                 loaded += (
                     gl.amd.cdna5.cooperative_atomic_load(
-                        pointer, bytes_per_lane=16, sem="relaxed", scope="sys"
+                        pointer,
+                        mask=packet_masks[batch][:, None],
+                        other=0,
+                        bytes_per_lane=16,
+                        sem="relaxed",
+                        scope="sys",
                     ),
                 )
         mismatch = gl.full([4, 64], False, gl.int1, LAYOUT)
         for index in gl.static_range(0, 3 * (WORLD_SIZE - 1)):
-            mismatch |= loaded[index] != flag
+            flag = (
+                packet_epochs[index % 3][:, None] >> (16 * (element[None, :] % 4))
+            ).to(gl.uint16)
+            mismatch |= packet_masks[index % 3][:, None] & (loaded[index] != flag)
         pending = gl.any(gl.any((element[None, :] >= 60) & mismatch, 1), 0)
         values = loaded
     return values
@@ -2309,15 +2318,27 @@ def ll128_all_reduce_bf16(
     wire_offsets = packet[:, None] * 64 + element[None, :]
     tile = gl.program_id(0).to(gl.int64)
     while tile * 512 < total_elements:
-        previous = gl.load(epochs + tile).to(gl.uint64)
-        # UINT64_MAX is divisible by three, so wrapping to one preserves slot order.
-        epoch = gl.where(previous == 0xFFFFFFFFFFFFFFFF, 1, previous + 1)
-        slot = (epoch - 1) % 3
-        tile_offset = slot * WORLD_SIZE * MAX_TILES * 768 + tile * 768
         region = gl.multiple_of(region_ptr.to(gl.pointer_type(gl.uint16)), 128)
 
         local = ()
+        packet_masks = ()
+        packet_epochs = ()
+        packet_slots = ()
         for batch in gl.static_range(0, 3):
+            first_element = batch * 240 + packet * 60
+            packet_masks += (
+                (first_element < 512) & (tile * 512 + first_element < total_elements),
+            )
+            previous = gl.load(
+                epochs + tile * 9 + batch * 4 + packet,
+                mask=packet_masks[batch],
+                other=0,
+            ).to(gl.uint64)
+            # Dormant packets keep their epochs, including across other packets' wrap.
+            epoch = gl.where(previous == 0xFFFFFFFFFFFFFFFF, 1, previous + 1)
+            packet_epochs += (epoch,)
+            # UINT64_MAX is divisible by three, so wrapping preserves slot order.
+            packet_slots += ((epoch - 1) % 3,)
             offsets = tile * 512 + batch * 240 + packet[:, None] * 60 + element[None, :]
             valid = (
                 (element[None, :] < 60)
@@ -2345,20 +2366,28 @@ def ll128_all_reduce_bf16(
             for batch in gl.static_range(0, 3):
                 pointer = (
                     destination
-                    + tile_offset
-                    + RANK * MAX_TILES * 768
+                    + packet_slots[batch][:, None] * WORLD_SIZE * MAX_TILES * 576
+                    + tile * 576
+                    + RANK * MAX_TILES * 576
                     + batch * 256
                     + wire_offsets
                 )
                 gl.amd.cdna5.cooperative_atomic_store(
-                    pointer, local[batch], bytes_per_lane=16, sem="relaxed", scope="sys"
+                    pointer,
+                    local[batch],
+                    mask=packet_masks[batch][:, None],
+                    bytes_per_lane=16,
+                    sem="relaxed",
+                    scope="sys",
                 )
 
         peers = _iris_ll128_wait_peers(
             region,
-            tile_offset,
+            tile,
             wire_offsets,
-            epoch,
+            packet_masks,
+            packet_epochs,
+            packet_slots,
             element,
             RANK,
             WORLD_SIZE,
@@ -2385,7 +2414,12 @@ def ll128_all_reduce_bf16(
                 & (offsets < total_elements)
             )
             gl.store(output_ptr + offsets, accumulator.to(gl.bfloat16), mask=valid)
-        gl.store(epochs + tile, epoch.to(gl.int64))
+        for batch in gl.static_range(0, 3):
+            gl.store(
+                epochs + tile * 9 + batch * 4 + packet,
+                packet_epochs[batch].to(gl.int64),
+                mask=packet_masks[batch],
+            )
         tile += gl.num_programs(0)
 
 

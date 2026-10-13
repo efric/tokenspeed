@@ -441,10 +441,69 @@ def _check_ll128_state(rank, device):
         heap_size=None,
         device=device,
     )
-    # Start with fresh zero flags near rollover to exercise the upper 32 bits
-    # and the three-stage cadence through UINT64_MAX -> 1.
-    state._epochs.fill_(-2)
-    expected_epochs = [(1 << 64) - 2] * 4
+    expected_epochs = [[0] * 9 for _ in range(4)]
+    expected_region = torch.zeros_like(state._region, device="cpu")
+
+    def check_mailboxes(numel, peer_values):
+        for tile in range((numel + 511) // 512):
+            tile_elements = min(512, numel - tile * 512)
+            for packet_index in range((tile_elements + 59) // 60):
+                previous = expected_epochs[tile][packet_index]
+                epoch = 1 if previous == (1 << 64) - 1 else previous + 1
+                expected_epochs[tile][packet_index] = epoch
+                slot = (epoch - 1) % 3
+                start = tile * 512 + packet_index * 60
+                count = min(60, tile_elements - packet_index * 60)
+                signed_epoch = epoch if epoch < 1 << 63 else epoch - (1 << 64)
+                for peer in range(8):
+                    if peer == rank:
+                        continue
+                    packet = expected_region[slot, peer, tile, packet_index]
+                    packet.zero_()
+                    packet[:count] = peer_values[peer, start : start + count].view(
+                        torch.int16
+                    )
+                    packet[60:].view(torch.int64).fill_(signed_epoch)
+        torch.testing.assert_close(
+            state._epochs.cpu().view(torch.uint64),
+            torch.tensor(expected_epochs, dtype=torch.uint64),
+            atol=0,
+            rtol=0,
+        )
+        # Comparing all storage also checks dormant packets and unused stages.
+        torch.testing.assert_close(state._region.cpu(), expected_region, atol=0, rtol=0)
+        dist.barrier()
+
+    # Leave packet 1 at flag/counter 1 while packet 0 reaches rollover. The
+    # dormant packet must resume at 2 even as its neighbor wraps back to 1.
+    pattern = (torch.arange(61) % 4).bfloat16()
+    probe_peers = pattern[None, :] + (2 * torch.arange(8) - 7).bfloat16()[:, None]
+    probe = probe_peers[rank].to(device)
+    actual = iris_ll128_all_reduce(state, probe)
+    torch.testing.assert_close(actual.cpu(), pattern * 8, atol=0, rtol=0)
+    check_mailboxes(61, probe_peers)
+
+    # Seed only the hot packet with fresh storage, preserving the cold history.
+    state._epochs[0, 0].fill_(-2)
+    state._region[:, :, 0, 0].zero_()
+    expected_epochs[0][0] = (1 << 64) - 2
+    expected_region[:, :, 0, 0].zero_()
+    torch.cuda.synchronize()
+    dist.barrier()
+    with assert_no_triton_compile(ll128_all_reduce_bf16):
+        actual = iris_ll128_all_reduce(state, probe[:1])
+    torch.testing.assert_close(actual.cpu(), pattern[:1] * 8, atol=0, rtol=0)
+    check_mailboxes(1, probe_peers)
+
+    probe_peers += 1
+    probe.copy_(probe_peers[rank])
+    if rank == 0:
+        torch.cuda._sleep(100_000)
+    with assert_no_triton_compile(ll128_all_reduce_bf16):
+        actual = iris_ll128_all_reduce(state, probe)
+    torch.testing.assert_close(actual.cpu(), (pattern + 1) * 8, atol=0, rtol=0)
+    check_mailboxes(61, probe_peers)
+
     generator = torch.Generator().manual_seed(2026)
     peers = torch.randn(8, 1537, generator=generator).bfloat16()
     peers[:, ::31] = -0.0
@@ -456,13 +515,8 @@ def _check_ll128_state(rank, device):
         expected += peers[peer].float()
     expected = expected.bfloat16()
     input_tensor = peers[rank].to(device)
-    for iteration, numel in enumerate((513, 61, 1537, 1, 1025, 512, 1537)):
-        compile_guard = (
-            assert_no_triton_compile(ll128_all_reduce_bf16)
-            if iteration
-            else nullcontext()
-        )
-        with compile_guard:
+    for numel in (513, 61, 1537, 1, 1025, 512, 1537):
+        with assert_no_triton_compile(ll128_all_reduce_bf16):
             actual = iris_ll128_all_reduce(state, input_tensor[:numel])
         actual_cpu = actual.cpu()
         torch.testing.assert_close(
@@ -471,42 +525,10 @@ def _check_ll128_state(rank, device):
         assert torch.equal(
             actual_cpu[::31].view(torch.int16), expected[:numel:31].view(torch.int16)
         )
-        tiles = (numel + 511) // 512
-        for tile in range(tiles):
-            previous = expected_epochs[tile]
-            epoch = 1 if previous == (1 << 64) - 1 else previous + 1
-            expected_epochs[tile] = epoch
-            slot = (epoch - 1) % 3
-            for peer in range(8):
-                if peer == rank:
-                    continue
-                packet = state._region[slot, peer, tile].cpu()
-                payload = packet[:, :60].flatten()
-                count = min(512, numel - tile * 512)
-                torch.testing.assert_close(
-                    payload[:count],
-                    peers[peer, tile * 512 : tile * 512 + count].view(torch.int16),
-                    atol=0,
-                    rtol=0,
-                )
-                assert torch.count_nonzero(payload[count:]) == 0
-                signed_epoch = epoch if epoch < 1 << 63 else epoch - (1 << 64)
-                torch.testing.assert_close(
-                    packet[:, 60:].contiguous().view(torch.int64).flatten(),
-                    torch.full((12,), signed_epoch, dtype=torch.int64),
-                    atol=0,
-                    rtol=0,
-                )
-        torch.testing.assert_close(
-            state._epochs.cpu().view(torch.uint64),
-            torch.tensor(expected_epochs, dtype=torch.uint64),
-            atol=0,
-            rtol=0,
-        )
+        check_mailboxes(numel, peers)
 
     # A smaller resident grid changes program ownership while each tile keeps
-    # its epoch. Both programs visit a second tile in the same invocation.
-    before = state._epochs.clone()
+    # its packet epochs. Both programs visit a second tile in one invocation.
     output = torch.empty_like(input_tensor)
     with assert_no_triton_compile(ll128_all_reduce_bf16):
         ll128_all_reduce_bf16[(2,)](
@@ -522,9 +544,9 @@ def _check_ll128_state(rank, device):
             num_warps=1,
         )
     torch.testing.assert_close(output.cpu(), expected, atol=0, rtol=0, equal_nan=True)
-    torch.testing.assert_close(state._epochs, before + 1, atol=0, rtol=0)
+    check_mailboxes(input_tensor.numel(), peers)
 
-    # Eager and captured calls share device epochs. Different sizes skip tiles
+    # Eager and captured calls share device epochs. Different sizes skip packets
     # independently, and rank skew must not expose a packet from an old epoch.
     captures = []
     with assert_no_triton_compile(ll128_all_reduce_bf16):
@@ -551,9 +573,16 @@ def _check_ll128_state(rank, device):
             snapshots.append((step, pattern, output.clone()))
     torch.cuda.synchronize()
     assert pointers == (state._region.data_ptr(), state._epochs.data_ptr())
+    first_elements = (
+        torch.arange(4, device=device)[:, None] * 512
+        + torch.arange(9, device=device)[None, :] * 60
+    )
+    increments = sum(
+        (first_elements < numel).to(torch.int64) for numel in (1537, 61, 513)
+    )
     torch.testing.assert_close(
         state._epochs,
-        before + torch.tensor([24, 16, 8, 8], device=device),
+        before + 8 * increments,
         atol=0,
         rtol=0,
     )

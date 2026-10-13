@@ -37,7 +37,7 @@ an eight-byte epoch. `cooperative_atomic_store` publishes both together with
 relaxed system scope. The receiver polls with the matching cooperative load,
 checks the complete epoch, and consumes the payload from that checked
 snapshot. Packets may arrive in any order. The polling condition covers every
-packet from every peer.
+active packet from every peer.
 
 The kernel represents four packets as a logical `[4, 64]` tensor of 16-bit
 words with `BlockedLayout([1, 8], [4, 8], [1, 1], [1, 0])`. Eight contiguous
@@ -47,11 +47,12 @@ Words 0–59 contain payload bits and words 60–63 contain the epoch, least
 significant word first. The Gluon API owns the cooperative access; this packet
 format belongs to the collective.
 
-Each logical tile always owns the same 512 application elements. Three full
-wave batches reserve twelve packets per tile. Nine packets carry the tile's data;
-the remaining positions are padding in the initial unmasked implementation.
-Application input and output tails use ordinary element masks. All wire
-loads and stores access complete allocated packets, including padding.
+Each logical tile always owns the same 512 application elements. Three wave
+batches address nine allocated packets per tile. Cooperative masks disable
+whole eight-lane groups for absent packets, including the last batch's three
+unused groups. Application input and output tails use ordinary element masks.
+A partially filled active packet still transfers all 128 bytes, with zeros in
+unused payload words. Inactive packets are neither accessed nor polled.
 Publication to every peer precedes polling. The receive loop retains all
 accepted data, then each rank folds contributions in ascending **group-rank**
 order in FP32 and rounds once to BF16.
@@ -71,17 +72,21 @@ packets are not cleared.
 
 ## Epochs and storage reuse
 
-The mailbox shape is `[3, world_size, max_tiles, 12, 64]` in 16-bit words.
+The mailbox shape is `[3, world_size, max_tiles, 9, 64]` in 16-bit words.
 Each sender exclusively writes its rank slice in each receiver's mailbox.
-Each tile has its own 64-bit device epoch, independent of the tile count in
-any particular invocation. A tile skipped by a smaller message keeps its
-epoch. All ranks see the same sequence of activations for that tile, so they
-continue to agree when the tile next participates.
+Each packet has its own 64-bit device epoch in `[max_tiles, 9]`, incremented
+only when that packet is active. A packet skipped by a smaller message keeps
+both its epoch and its stored flags. All ranks see the same sequence of
+activations for each stable `(tile, packet)` pair, so they continue to agree
+when that packet next participates.
 
 Epoch zero denotes initialized storage and is never published. The active
 slot is `(epoch - 1) % 3`. After `UINT64_MAX`, the next epoch is one;
 `UINT64_MAX` is a multiple of three, so slot rotation remains continuous at
-rollover. The last three epochs are distinct even at this boundary.
+rollover. The last three epochs are distinct even at this boundary. Packets in
+the same wave may use different slots; every enabled group still accesses a
+naturally aligned contiguous 128-byte packet. Tracking epochs per packet keeps
+an old flag from matching after other packets complete an entire epoch cycle.
 
 The bidirectional exchange supplies the reuse credit. A rank can publish its
 next epoch before another rank has consumed the current epoch. To complete
@@ -89,8 +94,8 @@ that next epoch, however, it must receive a next-epoch packet from every
 peer. Each peer publishes that packet only after its preceding invocation
 has finished consuming the current epoch. Thus a producer cannot progress
 far enough to reuse a three-stage slot while a peer still needs it. The
-argument applies separately to each stable tile, including when intervening
-calls omit the tile. Ordered kernel execution on each rank is a prerequisite;
+argument applies separately to each stable packet, including when intervening
+calls omit the packet. Ordered kernel execution on each rank is a prerequisite;
 the mailbox does not synchronize concurrent calls sharing a state.
 
 Relaxed cooperative accesses suffice for these self-contained packets.
@@ -117,13 +122,15 @@ rank-ordered FP32 contract.
 compiles the full kernel for `gfx1250` without launching it. It checks the
 LLVM cooperative intrinsics, relaxed system scope, full packet loads on the
 assembly retry loop, publication stores without mailbox clearing, wave32,
-and absence of spills. The LLVM backend must include the vector-memory-type
-fix for cooperative atomics from
+and absence of spills. The `tokenspeed-triton` build must include the masked
+`gl.amd.cdna5.cooperative_atomic_load` and `cooperative_atomic_store` APIs.
+Its LLVM backend must also include the vector-memory-type fix for cooperative
+atomics from
 [LLVM PR #229501](https://github.com/llvm/llvm-project/pull/229501).
 
 `test_ll128_epochs_and_payloads_world8` requires eight CDNA5 GPUs. It checks
 rank-ordered numerical results, payload bit preservation in the mailboxes,
-partial packets and tiles, epoch rollover, changing sizes and grids without
-JIT specialization, and graph replay under rank skew. Offline compilation does
-not establish hardware fabric atomicity or distributed liveness; those checks
-remain hardware tests.
+partial packets and tiles, untouched inactive storage, epoch rollover with a
+dormant packet, changing sizes and grids without JIT specialization, and graph
+replay under rank skew. Offline compilation does not establish hardware fabric
+atomicity or distributed liveness; those checks remain hardware tests.
