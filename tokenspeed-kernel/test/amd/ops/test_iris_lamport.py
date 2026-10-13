@@ -20,6 +20,7 @@
 
 import re
 import socket
+from contextlib import nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -345,3 +346,242 @@ def test_lamport_world8():
         sock.bind(("", 0))
         port = sock.getsockname()[1]
     mp.spawn(_lamport_worker, args=(port,), nprocs=8, join=True)
+
+
+@pytest.mark.parametrize("world_size,rank", [(2, 0), (8, 7)])
+def test_ll128_cooperative_polling_codegen(world_size, rank, tmp_path):
+    """The complete reduction must retain every packet load on the backedge."""
+    from tokenspeed_kernel._triton import gluon, triton
+    from tokenspeed_kernel.ops.communication.iris import ll128_all_reduce_bf16
+
+    fn = ll128_all_reduce_bf16
+    signature = dict(
+        zip(fn.arg_names[:4], ("*bf16", "*i16", "*bf16", "*i64"), strict=True)
+    )
+    signature.update({name: "i64" for name in fn.arg_names[4:12]})
+    signature["total_elements"] = "i32"
+    source = gluon._runtime.GluonASTSource(
+        fn,
+        signature,
+        constexprs={"RANK": rank, "WORLD_SIZE": world_size, "MAX_TILES": 23},
+        attrs={
+            (index,): [["tt.divisibility", 128 if index == 1 or index >= 4 else 16]]
+            for index in range(12)
+        },
+    )
+    kernel = triton.compile(
+        source,
+        target=triton.backends.compiler.GPUTarget("hip", "gfx1250", 32),
+        options={"num_warps": 1},
+    )
+    llir = kernel.asm["llir"]
+    assembly = kernel.asm["amdgcn"]
+    (tmp_path / f"ll128-world{world_size}-rank{rank}.llir").write_text(llir)
+    (tmp_path / f"ll128-world{world_size}-rank{rank}.amdgcn").write_text(assembly)
+    accesses = 3 * (world_size - 1)
+    for operation in ("load", "store"):
+        calls = re.findall(
+            rf"call .*@llvm\.amdgcn\.cooperative\.atomic\.{operation}\.8x16B\.p1\(.*",
+            llir,
+        )
+        assert len(calls) == accesses
+        scopes = []
+        for call in calls:
+            match = re.search(r"i32 0, metadata !(\d+)\)", call)
+            assert match, "wire accesses must be relaxed cooperative atomics"
+            scopes.append(match[1])
+        assert all(f'!{scope} = !{{!""}}' in llir for scope in scopes)
+    assert not re.search(r"\bfadd\s+(?:fast|reassoc)\b", llir)
+
+    lines = assembly.splitlines()
+    labels = {
+        match[1]: index
+        for index, line in enumerate(lines)
+        if (match := re.match(r"^(\.LBB\w+):", line))
+    }
+    cycles = []
+    for index, line in enumerate(lines):
+        match = re.search(r"\bs_(?:cbranch_\w+|branch)\s+(\.LBB\w+)", line)
+        if match and labels[match[1]] < index:
+            cycles.append(lines[labels[match[1]] : index + 1])
+    assert any(
+        sum("global_load_b128" in line and "scope:SCOPE_SYS" in line for line in cycle)
+        == accesses
+        and not any(
+            "global_store_b128" in line and "scope:SCOPE_SYS" in line for line in cycle
+        )
+        for cycle in cycles
+    ), "every full cooperative packet must be reloaded when polling retries"
+    assert any(
+        sum("global_store_b128" in line and "scope:SCOPE_SYS" in line for line in cycle)
+        == accesses
+        for cycle in cycles
+    ), "the bounded grid must retain its outer loop over tiles"
+    assert (
+        sum("global_store_b128" in line and "scope:SCOPE_SYS" in line for line in lines)
+        == accesses
+    ), "only peer publication stores are needed; consumed mailboxes are not cleared"
+    assert kernel.metadata.num_warps == 1
+    assert re.search(r"\.amdhsa_wavefront_size32\s+1\b", assembly)
+    assert re.search(r"\.amdhsa_private_segment_fixed_size\s+0\b", assembly)
+
+
+def _check_ll128_state(rank, device):
+    from tokenspeed_kernel.ops.communication.iris import (
+        create_iris_ll128_state,
+        iris_ll128_all_reduce,
+        ll128_all_reduce_bf16,
+    )
+    from utils import assert_no_triton_compile
+
+    state = create_iris_ll128_state(
+        group=dist.group.WORLD,
+        rank_in_group=rank,
+        max_numel=1537,
+        heap_size=None,
+        device=device,
+    )
+    # Start with fresh zero flags near rollover to exercise the upper 32 bits
+    # and the three-stage cadence through UINT64_MAX -> 1.
+    state._epochs.fill_(-2)
+    expected_epochs = [(1 << 64) - 2] * 4
+    generator = torch.Generator().manual_seed(2026)
+    peers = torch.randn(8, 1537, generator=generator).bfloat16()
+    peers[:, ::31] = -0.0
+    peers[1::2, 1::31] = -peers[::2, 1::31]
+    peers[:, 2::31] = float("inf")
+    peers[:, 3::31] = float("nan")
+    expected = peers[0].float()
+    for peer in range(1, 8):
+        expected += peers[peer].float()
+    expected = expected.bfloat16()
+    input_tensor = peers[rank].to(device)
+    for iteration, numel in enumerate((513, 61, 1537, 1, 1025, 512, 1537)):
+        compile_guard = (
+            assert_no_triton_compile(ll128_all_reduce_bf16)
+            if iteration
+            else nullcontext()
+        )
+        with compile_guard:
+            actual = iris_ll128_all_reduce(state, input_tensor[:numel])
+        actual_cpu = actual.cpu()
+        torch.testing.assert_close(
+            actual_cpu, expected[:numel], atol=0, rtol=0, equal_nan=True
+        )
+        assert torch.equal(
+            actual_cpu[::31].view(torch.int16), expected[:numel:31].view(torch.int16)
+        )
+        tiles = (numel + 511) // 512
+        for tile in range(tiles):
+            previous = expected_epochs[tile]
+            epoch = 1 if previous == (1 << 64) - 1 else previous + 1
+            expected_epochs[tile] = epoch
+            slot = (epoch - 1) % 3
+            for peer in range(8):
+                if peer == rank:
+                    continue
+                packet = state._region[slot, peer, tile].cpu()
+                payload = packet[:, :60].flatten()
+                count = min(512, numel - tile * 512)
+                torch.testing.assert_close(
+                    payload[:count],
+                    peers[peer, tile * 512 : tile * 512 + count].view(torch.int16),
+                    atol=0,
+                    rtol=0,
+                )
+                assert torch.count_nonzero(payload[count:]) == 0
+                signed_epoch = epoch if epoch < 1 << 63 else epoch - (1 << 64)
+                torch.testing.assert_close(
+                    packet[:, 60:].contiguous().view(torch.int64).flatten(),
+                    torch.full((12,), signed_epoch, dtype=torch.int64),
+                    atol=0,
+                    rtol=0,
+                )
+        torch.testing.assert_close(
+            state._epochs.cpu().view(torch.uint64),
+            torch.tensor(expected_epochs, dtype=torch.uint64),
+            atol=0,
+            rtol=0,
+        )
+
+    # A smaller resident grid changes program ownership while each tile keeps
+    # its epoch. Both programs visit a second tile in the same invocation.
+    before = state._epochs.clone()
+    output = torch.empty_like(input_tensor)
+    with assert_no_triton_compile(ll128_all_reduce_bf16):
+        ll128_all_reduce_bf16[(2,)](
+            input_tensor,
+            state._region,
+            output,
+            state._epochs,
+            *state._peer_addresses,
+            input_tensor.numel(),
+            RANK=rank,
+            WORLD_SIZE=8,
+            MAX_TILES=state._max_tiles,
+            num_warps=1,
+        )
+    torch.testing.assert_close(output.cpu(), expected, atol=0, rtol=0, equal_nan=True)
+    torch.testing.assert_close(state._epochs, before + 1, atol=0, rtol=0)
+
+    # Eager and captured calls share device epochs. Different sizes skip tiles
+    # independently, and rank skew must not expose a packet from an old epoch.
+    captures = []
+    with assert_no_triton_compile(ll128_all_reduce_bf16):
+        for numel in (1537, 61, 513):
+            pattern = (torch.arange(numel, device=device) % 4).to(torch.bfloat16)
+            source = pattern + 2 * rank - 7
+            graph = torch.cuda.CUDAGraph()
+            torch.cuda.synchronize()
+            dist.barrier()
+            with torch.cuda.graph(graph):
+                output = iris_ll128_all_reduce(state, source)
+            captures.append((numel, graph, source, output, pattern))
+    before = state._epochs.clone()
+    pointers = (state._region.data_ptr(), state._epochs.data_ptr())
+    snapshots = []
+    step = 0
+    for iteration in range(8):
+        for numel, graph, source, output, pattern in captures:
+            step += 1
+            torch.add(pattern, step + 2 * rank - 7, out=source)
+            if rank == iteration % 8:
+                torch.cuda._sleep(100_000)
+            graph.replay()
+            snapshots.append((step, pattern, output.clone()))
+    torch.cuda.synchronize()
+    assert pointers == (state._region.data_ptr(), state._epochs.data_ptr())
+    torch.testing.assert_close(
+        state._epochs,
+        before + torch.tensor([24, 16, 8, 8], device=device),
+        atol=0,
+        rtol=0,
+    )
+    # Every rank/step/element value is an exact integer. Sums stay <=216, so
+    # even one peer's one-epoch stale payload changes the BF16 result exactly.
+    for step, pattern, output in snapshots:
+        torch.testing.assert_close(output, (pattern + step) * 8, atol=0, rtol=0)
+
+
+def _ll128_worker(rank, port):
+    torch.cuda.set_device(rank)
+    dist.init_process_group(
+        backend="gloo",
+        init_method=f"tcp://localhost:{port}",
+        rank=rank,
+        world_size=8,
+        timeout=timedelta(seconds=180),
+    )
+    try:
+        _check_ll128_state(rank, torch.device(f"cuda:{rank}"))
+    finally:
+        dist.destroy_process_group()
+
+
+def test_ll128_epochs_and_payloads_world8():
+    if not current_platform().is_cdna5 or torch.cuda.device_count() < 8:
+        pytest.skip("requires eight CDNA5 GPUs with LL128 fabric support")
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("", 0))
+        port = sock.getsockname()[1]
+    mp.spawn(_ll128_worker, args=(port,), nprocs=8, join=True)

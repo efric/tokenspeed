@@ -69,13 +69,16 @@ _attn_res_mix_gfx950 = None
 __all__ = [
     "IRIS_ALL_REDUCE_KERNEL_CONFIG",
     "IrisAllReduce",
+    "IrisLL128AllReduce",
     "IrisAllReduceKernelConfig",
     "KimiK3AttnResKernelConfig",
     "KimiK3MoeAllReduceKernelConfig",
     "IrisRSAG",
     "IrisAllReduceResidualRMSNorm",
     "create_iris_state",
+    "create_iris_ll128_state",
     "iris_all_reduce",
+    "iris_ll128_all_reduce",
     "iris_acquire_outputs",
     "iris_all_reduce_symmetric",
     "iris_all_reduce_residual_attnres",
@@ -796,6 +799,113 @@ class IrisRSAG(object):
         _iris_all_gather(out_view, in_view, self._ctx, config=config)
 
         return out_view.clone() if safe else out_view
+
+
+class IrisLL128AllReduce:
+    """One-shot BF16 all-reduce with cooperative LL128 packets on CDNA5.
+
+    Calls sharing a state must execute in order on each rank, with the same
+    sequence of element counts on every rank. Concurrent collectives need
+    separate states, coordinated rank order, and enough resources for every
+    polling workgroup to remain resident. Graph replay obeys the same rules.
+    Epochs live on device.
+    The Iris heap must provide supported GPU-to-GPU fabric access.
+    """
+
+    def __init__(
+        self,
+        group: dist.ProcessGroup,
+        rank_in_group: int,
+        max_numel: int,
+        heap_size: int | None,
+        device: torch.device | None,
+    ) -> None:
+        if not dist.is_initialized() or not _platform.is_cdna5:
+            raise RuntimeError("LL128 requires initialized distributed CDNA5 GPUs")
+        self.group = group
+        self.rank_in_group = rank_in_group
+        self.world_size = group.size()
+        self.max_numel = max_numel
+        current_device = torch.device(f"cuda:{torch.cuda.current_device()}")
+        self.device = (
+            current_device
+            if device is None or device == torch.device("cuda")
+            else device
+        )
+        if self.device != current_device:
+            raise ValueError("LL128 device must be the current CUDA device")
+        if not 2 <= self.world_size <= 8 or max_numel <= 0:
+            raise ValueError("LL128 requires 2–8 ranks and positive capacity")
+        group_ranks = dist.get_process_group_ranks(group)
+        if not 0 <= rank_in_group < self.world_size or (
+            group_ranks[rank_in_group] != dist.get_rank()
+        ):
+            raise ValueError("LL128 rank_in_group does not identify this process")
+
+        self._max_tiles = triton.cdiv(max_numel, 512)
+        # Three wave32 batches hold twelve full packets for each 512-BF16 tile.
+        region_bytes = 3 * self.world_size * self._max_tiles * 12 * 128
+        if heap_size is None:
+            heap_size = max(1 << 28, region_bytes + (16 << 20))
+        self._ctx = _get_or_create_iris_context(heap_size)
+        if self._ctx.get_device() != self.device:
+            raise ValueError("LL128 device must match the Iris symmetric heap device")
+        sm_counts = [None] * self.world_size
+        dist.all_gather_object(sm_counts, self._ctx.get_cu_count(), group=group)
+        self._max_programs = min(sm_counts)
+        self._region = self._ctx.zeros(
+            (3, self.world_size, self._max_tiles, 12, 64), dtype=torch.int16
+        )
+        self._epochs = torch.zeros(
+            (self._max_tiles,), dtype=torch.int64, device=self.device
+        )
+        heap_bases = tuple(
+            int(address) for address in self._ctx.get_heap_bases()[group_ranks].tolist()
+        )
+        addresses = _peer_addresses(self._region, heap_bases, rank_in_group)
+        if any(address % 128 for address in addresses):
+            raise RuntimeError("LL128 mailboxes require 128-byte alignment")
+        self._peer_addresses = addresses + (addresses[-1],) * (8 - self.world_size)
+        # The initialization epoch is zero and is never published by the kernel.
+        torch.cuda.synchronize(self.device)
+        dist.barrier(group=group)
+
+    def all_reduce(self, tensor: torch.Tensor) -> torch.Tensor:
+        """Return a fresh BF16 sum, folding ranks in ascending order in FP32.
+
+        Args:
+            tensor: Contiguous local BF16 input, with at most ``max_numel``
+                elements. The input does not have to reside in the Iris heap.
+
+        Returns:
+            A local tensor with the input shape. The sum rounds once to BF16.
+        """
+        if (
+            tensor.dtype != torch.bfloat16
+            or tensor.device != self.device
+            or not tensor.is_contiguous()
+            or tensor.numel() > self.max_numel
+        ):
+            raise ValueError(
+                "LL128 input must be contiguous local BF16 within capacity"
+            )
+        output = torch.empty_like(tensor)
+        total_numel = tensor.numel()
+        if total_numel:
+            programs = min(triton.cdiv(total_numel, 512), self._max_programs)
+            ll128_all_reduce_bf16[(programs,)](
+                tensor,
+                self._region,
+                output,
+                self._epochs,
+                *self._peer_addresses,
+                total_numel,
+                RANK=self.rank_in_group,
+                WORLD_SIZE=self.world_size,
+                MAX_TILES=self._max_tiles,
+                num_warps=1,
+            )
+        return output
 
 
 class IrisAllReduce(object):
@@ -2120,6 +2230,163 @@ def iris_stage_one_shot_allreduce_kernel(
                 hint=BLOCK_SIZE,
             ).to(tl.float32)
     tl.store(output_ptr + offsets, acc.to(output_ptr.type.element_ty), mask=mask)
+
+
+@gluon.jit
+def _iris_ll128_pack_bf16(input_ptr, offsets, valid, epoch, element):
+    payload = gl.load(input_ptr + offsets, mask=valid, other=0)
+    bits = payload.to(gl.uint16, bitcast=True)
+    flag = (epoch >> (16 * (element[None, :] % 4))).to(gl.uint16)
+    return gl.where(element[None, :] < 60, bits, flag)
+
+
+@gluon.jit
+def _iris_ll128_wait_peers(
+    region,
+    tile_offset,
+    wire_offsets,
+    epoch,
+    element,
+    RANK: gl.constexpr,
+    WORLD_SIZE: gl.constexpr,
+    MAX_TILES: gl.constexpr,
+    LAYOUT: gl.constexpr,
+):
+    values = ()
+    for _ in gl.static_range(0, 3 * (WORLD_SIZE - 1)):
+        values += (gl.full([4, 64], 0, gl.uint16, LAYOUT),)
+    pending = True
+    flag = (epoch >> (16 * (element[None, :] % 4))).to(gl.uint16)
+    while pending:
+        loaded = ()
+        for delta in gl.static_range(1, WORLD_SIZE):
+            peer = (RANK + delta) % WORLD_SIZE
+            for batch in gl.static_range(0, 3):
+                pointer = (
+                    region
+                    + tile_offset
+                    + peer * MAX_TILES * 768
+                    + batch * 256
+                    + wire_offsets
+                )
+                loaded += (
+                    gl.amd.cdna5.cooperative_atomic_load(
+                        pointer, bytes_per_lane=16, sem="relaxed", scope="sys"
+                    ),
+                )
+        mismatch = gl.full([4, 64], False, gl.int1, LAYOUT)
+        for index in gl.static_range(0, 3 * (WORLD_SIZE - 1)):
+            mismatch |= loaded[index] != flag
+        pending = gl.any(gl.any((element[None, :] >= 60) & mismatch, 1), 0)
+        values = loaded
+    return values
+
+
+@gluon.jit(do_not_specialize=["total_elements"])
+def ll128_all_reduce_bf16(
+    input_ptr,
+    region_ptr,
+    output_ptr,
+    epochs,
+    region_0,
+    region_1,
+    region_2,
+    region_3,
+    region_4,
+    region_5,
+    region_6,
+    region_7,
+    total_elements,
+    RANK: gl.constexpr,
+    WORLD_SIZE: gl.constexpr,
+    MAX_TILES: gl.constexpr,
+):
+    """Exchange LL128 packets, then fold peer BF16 payloads in rank order."""
+    gl.static_assert(2 <= WORLD_SIZE <= 8)
+    layout: gl.constexpr = gl.BlockedLayout([1, 8], [4, 8], [1, 1], [1, 0])
+    packet = gl.arange(0, 4, layout=gl.SliceLayout(1, layout))
+    element = gl.arange(0, 64, layout=gl.SliceLayout(0, layout))
+    wire_offsets = packet[:, None] * 64 + element[None, :]
+    tile = gl.program_id(0).to(gl.int64)
+    while tile * 512 < total_elements:
+        previous = gl.load(epochs + tile).to(gl.uint64)
+        # UINT64_MAX is divisible by three, so wrapping to one preserves slot order.
+        epoch = gl.where(previous == 0xFFFFFFFFFFFFFFFF, 1, previous + 1)
+        slot = (epoch - 1) % 3
+        tile_offset = slot * WORLD_SIZE * MAX_TILES * 768 + tile * 768
+        region = gl.multiple_of(region_ptr.to(gl.pointer_type(gl.uint16)), 128)
+
+        local = ()
+        for batch in gl.static_range(0, 3):
+            offsets = tile * 512 + batch * 240 + packet[:, None] * 60 + element[None, :]
+            valid = (
+                (element[None, :] < 60)
+                & (offsets < (tile + 1) * 512)
+                & (offsets < total_elements)
+            )
+            local += (_iris_ll128_pack_bf16(input_ptr, offsets, valid, epoch, element),)
+
+        for delta in gl.static_range(1, WORLD_SIZE):
+            peer = (RANK + delta) % WORLD_SIZE
+            destination = _iris_heap_base(
+                peer,
+                region_0,
+                region_1,
+                region_2,
+                region_3,
+                region_4,
+                region_5,
+                region_6,
+                region_7,
+            )
+            destination = gl.multiple_of(
+                destination.to(gl.pointer_type(gl.uint16)), 128
+            )
+            for batch in gl.static_range(0, 3):
+                pointer = (
+                    destination
+                    + tile_offset
+                    + RANK * MAX_TILES * 768
+                    + batch * 256
+                    + wire_offsets
+                )
+                gl.amd.cdna5.cooperative_atomic_store(
+                    pointer, local[batch], bytes_per_lane=16, sem="relaxed", scope="sys"
+                )
+
+        peers = _iris_ll128_wait_peers(
+            region,
+            tile_offset,
+            wire_offsets,
+            epoch,
+            element,
+            RANK,
+            WORLD_SIZE,
+            MAX_TILES,
+            layout,
+        )
+        # Consume the snapshot whose epoch was checked; no subsequent payload read.
+        for batch in gl.static_range(0, 3):
+            for peer in gl.static_range(0, WORLD_SIZE):
+                if peer == RANK:
+                    term = local[batch]
+                else:
+                    term = peers[
+                        ((peer - RANK + WORLD_SIZE) % WORLD_SIZE - 1) * 3 + batch
+                    ]
+                if peer == 0:
+                    accumulator = term.to(gl.bfloat16, bitcast=True).to(gl.float32)
+                else:
+                    accumulator += term.to(gl.bfloat16, bitcast=True).to(gl.float32)
+            offsets = tile * 512 + batch * 240 + packet[:, None] * 60 + element[None, :]
+            valid = (
+                (element[None, :] < 60)
+                & (offsets < (tile + 1) * 512)
+                & (offsets < total_elements)
+            )
+            gl.store(output_ptr + offsets, accumulator.to(gl.bfloat16), mask=valid)
+        gl.store(epochs + tile, epoch.to(gl.int64))
+        tile += gl.num_programs(0)
 
 
 @gluon.jit
@@ -3550,6 +3817,40 @@ class IrisAllReduceResidualRMSNorm(object):
         # Ensure all peer loads finish before the next call reuses _input_buf.
         self._ctx.device_barrier()
         return norm_out, residual_out
+
+
+def create_iris_ll128_state(
+    group: dist.ProcessGroup,
+    rank_in_group: int,
+    max_numel: int,
+    heap_size: int | None,
+    device: torch.device | None,
+) -> IrisLL128AllReduce:
+    """Collectively allocate and initialize an explicit CDNA5 LL128 state.
+
+    Args:
+        group: Two to eight ranks with supported GPU fabric access.
+        rank_in_group: This process's rank within ``group``.
+        max_numel: Maximum BF16 element count, identical on all ranks.
+        heap_size: Iris heap capacity in bytes, or ``None`` to size automatically.
+        device: Local device, or ``None`` for the current device.
+
+    Returns:
+        A state for ordered calls to :func:`iris_ll128_all_reduce`. Create states
+        in the same symmetric-allocation order on all Iris ranks before capture.
+    """
+    return IrisLL128AllReduce(group, rank_in_group, max_numel, heap_size, device)
+
+
+def iris_ll128_all_reduce(
+    state: IrisLL128AllReduce, tensor: torch.Tensor
+) -> torch.Tensor:
+    """Return a fresh BF16 all-reduce of ``tensor`` through ``state``'s packets.
+
+    Inputs are contiguous local BF16 tensors of matching element count on every
+    rank. Calls using the same state must be serialized on each rank.
+    """
+    return state.all_reduce(tensor)
 
 
 def create_iris_state(
